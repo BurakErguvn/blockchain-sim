@@ -1,0 +1,439 @@
+use rand::Rng;
+use rand::thread_rng;
+use std::collections::HashMap;
+use std::fmt;
+use sha2::{Sha256, Digest};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+
+//Block yapısı
+#[derive(Debug, Clone)]
+pub struct Block {
+    pub index: usize,
+    pub timestamp: u64,
+    pub data: String,
+    pub previous_hash: String,
+    pub hash: String,
+    pub nonce: u64,
+}
+
+impl Block {
+    pub fn new(index: usize, timestamp: u64, data: String, previous_hash: String) -> Self {
+        let mut block = Block {
+            index,
+            timestamp,
+            data,
+            previous_hash,
+            hash: String::new(),
+            nonce: 0,
+        };
+        block.hash = block.calculate_hash();
+        block
+    }
+
+    // Block'un hash'ini hesapla
+    pub fn calculate_hash(&self) -> String {
+        let mut hasher = Sha256::new();
+        let contents = format!("{}{}{}{}{}", self.index, self.timestamp, self.data, self.previous_hash, self.nonce);
+        hasher.update(contents.as_bytes());
+        let result = hasher.finalize();
+        format!("{:x}", result)
+    }
+
+    // Proof of Work (basit bir zorluk seviyesi)
+    pub fn mine_block(&mut self, difficulty: usize) {
+        let target = "0".repeat(difficulty); // Hedef: belirli sayıda 0 ile başlayan hash
+        
+        while !self.hash.starts_with(&target) {
+            self.nonce += 1;
+            self.hash = self.calculate_hash();
+        }
+        
+        println!("Block mined! Nonce: {}, Hash: {}", self.nonce, self.hash);
+    }
+}
+
+impl fmt::Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Block #{}: [Previous Hash: {}, Hash: {}, Data: {}]", 
+               self.index, self.previous_hash, self.hash, self.data)
+    }
+}
+
+//Node sınıfı
+#[derive(Debug)]
+pub struct Node {
+    id:usize,
+    hash:String,
+    connections: Vec<usize>, //Bağlı nodeların id'leri
+    is_validator: bool,
+    valinfo: String,
+    blockchain: Vec<Block>, // Blok zinciri
+}
+
+pub struct BlockchainNetwork {
+    nodes: HashMap<usize, Node>,
+    current_validator_id: Option<usize>,
+    difficulty: usize, // Madencilik zorluğu
+}
+
+impl fmt::Display for Node {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Node ID: {}, Hash: {}, Validator: {}, Connections: {:?}, Blockchain Length: {}", 
+            self.id, self.hash, self.is_validator, self.connections, self.blockchain.len())
+    }
+}
+
+impl Node {
+    pub fn new (id:usize) -> Self {
+        // Genesis bloğunu oluştur
+        let genesis_block = Block::new(
+            0, 
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            "Genesis Block".to_string(),
+            "0".to_string(),
+        );
+        
+        let mut blockchain = Vec::new();
+        blockchain.push(genesis_block);
+        
+        Node {
+            id,
+            connections: Vec::new(),
+            is_validator: false,
+            valinfo: String::new(),
+            hash: String::new(),
+            blockchain,
+        }
+    }
+
+    //Gelen valinfoyu hash'e çeviren fonksiyon
+    pub fn process_valinfo(&mut self, valinfo: &str) -> String {
+        if self.is_validator {
+            //SHA-256 hash fonksiyonu
+            let mut hasher = Sha256::new();
+            hasher.update(valinfo.as_bytes());
+            let result = hasher.finalize();
+            let hash = format!("{:x}", result);
+            
+            self.valinfo = valinfo.to_string();
+            self.hash = hash.clone();
+            hash
+        }else {
+            println!("Node {} is not a validator.", self.id);
+            String::new()
+        }
+    }
+
+    //Hash değerini güncelleme
+    pub fn update_hash(&mut self, new_hash: String) {
+        self.hash = new_hash;
+    }
+
+    //Node bağlantısı ekleme
+    pub fn add_connection(&mut self , node_id: usize) {
+        if !self.connections.contains(&node_id)&& node_id != self.id {
+            self.connections.push(node_id);
+        }
+    }
+    
+    // Yeni bir blok ekle
+    pub fn add_block(&mut self, data: String, difficulty: usize) -> Block {
+        let last_block = self.blockchain.last().unwrap();
+        let new_index = last_block.index + 1;
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        
+        let mut new_block = Block::new(
+            new_index,
+            timestamp,
+            data,
+            last_block.hash.clone(),
+        );
+        
+        // Blok madenciliği
+        new_block.mine_block(difficulty);
+        
+        self.blockchain.push(new_block.clone());
+        new_block
+    }
+    
+    // Blockchain'i güncelle
+    pub fn update_blockchain(&mut self, blockchain: Vec<Block>) {
+        if blockchain.len() > self.blockchain.len() {
+            // Yeni zincir daha uzunsa, mevcut zinciri değiştir
+            self.blockchain = blockchain;
+        }
+    }
+
+    // Blockchain'in geçerliliğini kontrol et
+    pub fn is_chain_valid(&self) -> bool {
+        for i in 1..self.blockchain.len() {
+            let current_block = &self.blockchain[i];
+            let previous_block = &self.blockchain[i - 1];
+            
+            // Hash doğrulaması
+            if current_block.hash != current_block.calculate_hash() {
+                return false;
+            }
+            
+            // Previous hash doğrulaması
+            if current_block.previous_hash != previous_block.hash {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl BlockchainNetwork {
+    pub fn new() -> Self {
+        BlockchainNetwork {
+            nodes: HashMap::new(),
+            current_validator_id: None,
+            difficulty: 2, // Varsayılan zorluk seviyesi
+        }
+    }
+
+    //Yeni bir node ekleme
+    pub fn add_node(&mut self) -> usize {
+        let id = self.nodes.len();
+        let node = Node::new(id);
+        self.nodes.insert(id, node);
+        id
+    }
+
+    //İki node arasında bağlantı oluşturma
+    pub fn connect_nodes(&mut self, node1_id: usize, node2_id: usize) {
+        if let Some(node1) = self.nodes.get_mut(&node1_id) {
+            node1.add_connection(node2_id);
+        }
+        if let Some(node2) = self.nodes.get_mut(&node2_id) {
+            node2.add_connection(node1_id);
+            
+        }
+    }
+
+    // Rasgele bir validator seç
+    pub fn select_random_validator(&mut self) {
+        if self.nodes.is_empty() {
+            println!("No nodes in the network.");
+            return;
+        }
+
+        //önce tüm node'ları validator olmaktan çıkar
+        for node in self.nodes.values_mut() {
+            node.is_validator = false;
+        }  
+
+        //Rasgele bir node seç ve validator yap
+        let mut rng = rand::thread_rng();
+        let validator_id = rng.gen_range(0..self.nodes.len());
+
+        if let Some(node) = self.nodes.get_mut(&validator_id) {
+            node.is_validator = true;
+            self.current_validator_id = Some(validator_id);
+            println!("Node {} is selected as the new validator.", validator_id);
+        }
+    }
+
+    //Yeni bir işlem (valinfo) oluştur ve doğrula
+    pub fn create_transaction(&mut self, valinfo: &str) {
+        if let Some(validator_id) = self.current_validator_id {
+            // Önce hash'i oluştur ve blockchain ekle
+            let new_hash;
+            let blockchain_clone;
+            
+            {
+                let validator = match self.nodes.get_mut(&validator_id) {
+                    Some(v) => v,
+                    None => {
+                        println!("Validator not found.");
+                        return;
+                    }
+                };
+                
+                new_hash = validator.process_valinfo(valinfo);
+                println!("Validator {} processed transaction with hash: {}", validator_id, new_hash);
+                
+                // Yeni bir blok oluştur
+                let new_block = validator.add_block(valinfo.to_string(), self.difficulty);
+                println!("Validator {} created a new block: {}", validator_id, new_block);
+                
+                blockchain_clone = validator.blockchain.clone();
+            }
+            
+            // Sonra hash'i ve blockchain'i broadcast et
+            self.broadcast_hash(new_hash);
+            self.broadcast_blockchain(blockchain_clone);
+        } else {
+            println!("No validator selected.");
+        }
+    }
+
+    //Hash'i tüm bağlı node'lara gönder
+    pub fn broadcast_hash(&mut self, hash: String){
+        for node in self.nodes.values_mut()  {
+            node.update_hash(hash.clone());
+        }
+        println!("Broadcasted hash {} to all nodes.", hash);
+    }
+    
+    // Blockchain'i tüm node'lara yayınla
+    pub fn broadcast_blockchain(&mut self, blockchain: Vec<Block>) {
+        for node in self.nodes.values_mut() {
+            node.update_blockchain(blockchain.clone());
+        }
+        println!("Broadcasted blockchain with {} blocks to all nodes.", blockchain.len());
+    }
+
+    //Bir node'un hash'ini manipüle etmeyi dene
+    pub fn try_manipulate_hash(&mut self, node_id : usize, fake_hash: String) -> bool {
+        if let Some(validator_id) = self.current_validator_id {
+            if node_id == validator_id {
+                //Eğer validator hash'i değiştirirse, bu yeni hash olur
+                if let  Some(node) = self.nodes.get_mut(&node_id){
+                    node.hash = fake_hash.clone();
+                    self.broadcast_hash(fake_hash.clone());
+                    println!("Validator has changed the hash. New hash: {}", fake_hash);
+                    return true;
+                }
+            }
+        } else {
+            //Validator olmayan bir node hash'i değiştirmeye çalışırsa
+            if let Some(_node) = self.nodes.get_mut(&node_id) {
+                let orginal_hash = fake_hash.clone();
+                println!("Node {} tried to manipulate the hash: {} -> {}", node_id, orginal_hash, fake_hash);
+
+                //Oylama yap - %51 konsensüs gerekli
+                let total_nodes = self.nodes.len();
+                let mut matching_hash_count = 0;
+                for (id,other_node) in &self.nodes {
+                    if id != &node_id && other_node.hash == orginal_hash {
+                        matching_hash_count += 1;
+                    }
+                    
+                }
+
+                //Konsensüs kontrolü
+                if matching_hash_count > total_nodes / 2 {
+                    //Konsensüs sağlandı, hash düzeltilecek
+                    if let Some(node) = self.nodes.get_mut(&node_id) {
+                        node.hash = orginal_hash.clone();
+                        println!("Consensus achieved! Fixed hash {} of node {}", orginal_hash, node_id);
+                        return false;
+                    }
+                } else {
+                    //Manipülasyon başarılı
+                    println!("WARNING: Manipulation successful! Node {} has hash {}", node_id, fake_hash);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    
+    // Bir node'un blockchain'ini manipüle etmeyi dene
+    pub fn try_manipulate_blockchain(&mut self, node_id: usize) -> bool {
+        // Manipüle edilecek node'u al ve blockchain'i değiştir
+        let mut manipulation_successful = false;
+        let mut manipulated_chain_is_valid = true;
+        let mut last_block_index = 0;
+        
+        {
+            let node = match self.nodes.get_mut(&node_id) {
+                Some(n) => n,
+                None => return false,
+            };
+            
+            // En son bloğu değiştirmeye çalış
+            if let Some(last_block) = node.blockchain.last_mut() {
+                last_block_index = last_block.index;
+                let original_data = last_block.data.clone();
+                last_block.data = format!("Manipulated: {}", original_data);
+                
+                // Hash'i yeniden hesapla (mining olmadan)
+                last_block.hash = last_block.calculate_hash();
+                
+                println!("Node {} tried to manipulate blockchain. Changed data in block #{}.", 
+                        node_id, last_block.index);
+                
+                // Blockchain'in geçerliliğini kontrol et
+                manipulated_chain_is_valid = node.is_chain_valid();
+                if !manipulated_chain_is_valid {
+                    println!("WARNING: Node {}'s blockchain is now invalid!", node_id);
+                }
+            }
+        }
+        
+        // Diğer node'ların geçerlilik durumunu kontrol et ve geçerli blockchain'leri topla
+        let mut valid_chains_count = 0;
+        let total_nodes = self.nodes.len();
+        let mut valid_blockchain_source = None;
+        
+        for (id, node) in &self.nodes {
+            if *id != node_id && node.is_chain_valid() {
+                valid_chains_count += 1;
+                
+                if valid_blockchain_source.is_none() {
+                    valid_blockchain_source = Some((*id, node.blockchain.clone()));
+                }
+            }
+        }
+        
+        // Eğer geçerli zincirler çoğunluktaysa manipülasyon başarısız olur
+        if valid_chains_count > (total_nodes / 2) {
+            println!("Manipulation detected! Node {}'s blockchain will be rejected.", node_id);
+            
+            // Geçerli bir zinciri manipüle edilen node'a gönder
+            if let Some((source_id, blockchain)) = valid_blockchain_source {
+                if let Some(node) = self.nodes.get_mut(&node_id) {
+                    node.update_blockchain(blockchain);
+                    println!("Node {}'s blockchain restored from Node {}.", node_id, source_id);
+                }
+            }
+            
+            manipulation_successful = false;
+        } else {
+            println!("WARNING: Manipulation successful! Node {}'s blockchain is corrupted.", node_id);
+            manipulation_successful = true;
+        }
+        
+        manipulation_successful
+    }
+
+    //Ağın durumunu görüntüle
+    pub fn print_network_state(&self){
+        println!("\n--- BLOCKCHAIN NETWORK STATE ---");
+        for node in self.nodes.values() {
+            println!("{}", node);
+        }
+        println!("---------------------------------\n");
+    }
+    
+    // Belirli bir node'un blockchain'ini görüntüle
+    pub fn print_blockchain(&self, node_id: usize) {
+        if let Some(node) = self.nodes.get(&node_id) {
+            println!("\n--- BLOCKCHAIN FROM NODE {} ---", node_id);
+            for block in &node.blockchain {
+                println!("{}", block);
+            }
+            println!("---------------------------------\n");
+        }
+    }
+
+    //Ağdaki node sayısını döndür
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    //Şu anki validator id'sini döndür
+    pub fn current_val_id(&self) -> Option<usize> {
+        self.current_validator_id
+    }
+    
+    // Zorluk seviyesini ayarla
+    pub fn set_difficulty(&mut self, difficulty: usize) {
+        self.difficulty = difficulty;
+        println!("Mining difficulty set to: {}", difficulty);
+    }
+}
