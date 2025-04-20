@@ -9,6 +9,7 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 - Validatorlar (düğüm doğrulayıcıları) yeni blokları oluşturabilir
 - Nodelar arasında bağlantılar ve iletişim vardır
 - Her node'un benzersiz bir kimliği (ID) bulunur
+- Nodelar kendileriyle bağlantı kuramazlar
 
 ### Block Yapısı
 - Index: Blokun zincirdeki sıra numarası
@@ -24,28 +25,32 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 - Consensus (Uzlaşma): Çoğunluk kuralı ile validasyon
 - Proof of Work: Madencilik işlemi için gereken zorluğu simüle eder
 - Distributed Ledger: Her node tüm blockchain'in bir kopyasını tutar
+- Süreli Validator Yetkisi: Validatorlar sadece bir blok oluşturduktan sonra yetkileri kaldırılır
 
 ### Güvenlik Özellikleri
 - SHA-256 hash algoritması kullanımı
 - Blok doğrulama mekanizması
 - Manipülasyon tespiti ve düzeltme sistemi
 - Çoğunluk tabanlı konsensüs mekanizması
+- Tek validatorda güç yoğunlaşmasını önleme sistemi
 
 ## Nasıl Çalışır?
 
 1. **Ağ Oluşturma**:
-   - Çeşitli nodelar oluşturulur ve birbirine bağlanır
+   - Çeşitli nodelar oluşturulur ve birbirine bağlanır (kendileriyle değil)
    - Başlangıçta her node bir Genesis bloğu içerir
 
 2. **Validator Seçimi**:
    - Rastgele bir node validator olarak seçilir
    - Sadece validatorlar yeni blok oluşturabilir
+   - Her validator sadece bir blok oluşturabilir, sonra yetkisi alınır
 
 3. **İşlem Oluşturma ve Madencilik**:
    - Yeni bir işlem (transaction) oluşturulur
    - Validator bu işlemi alır ve işler
-   - Proof of Work algoritması ile yeni bir blok oluşturulur
+   - Proof of Work algoritması ile yeni bir blok oluşturulur (belirli sayıda öncü sıfır)
    - Yeni blok ağdaki tüm nodelara yayınlanır
+   - Validator'ın yetkisi kaldırılır
 
 4. **Güvenlik ve Doğrulama**:
    - Nodelar blockchain'in bütünlüğünü sürekli kontrol eder
@@ -63,11 +68,11 @@ Simülasyon şu senaryoları içerir:
 1. **Normal İşlem Akışı**:
    - Validator seçilir ve yeni bir işlem (transaction) ekler
    - Blok madenciliği yapılır ve zincire eklenir
+   - Validator'ın yetkisi kaldırılır
 
 2. **Hash Manipülasyonu**:
-   - Validator olmayan bir node hash'i değiştirmeye çalışır
+   - Normal bir node hash'i değiştirmeye çalışır
    - Konsensüs mekanizması bunu tespit eder ve reddeder
-   - Validator bir hash değişikliği yaparsa, bu değişiklik kabul edilir
 
 3. **Blockchain Manipülasyonu**:
    - Bir node blockchain verilerini değiştirmeye çalışır
@@ -86,6 +91,8 @@ Simülasyon şu senaryoları içerir:
 
 - **src/main.rs**: Ana simülasyon akışı ve test senaryoları
 - **src/node.rs**: Node, Block ve BlockchainNetwork yapıları ve ilgili implementasyonlar
+- **LICENSE**: MIT lisansı (Copyright 2024 Burak Ergüven)
+- **README.md**: Proje dokümantasyonu
 
 ### İçerdiği Özellikler
 
@@ -93,6 +100,7 @@ Simülasyon şu senaryoları içerir:
 - **Transparent (Şeffaf)**: Tüm nodelar blockchain'i görebilir
 - **Secure (Güvenli)**: SHA-256 hash ve doğrulama mekanizmaları
 - **Immutable (Değiştirilemez)**: Değişiklikler tespit edilir ve düzeltilir
+- **Democratic (Demokratik)**: Hiçbir node sürekli kontrol sahibi olamaz
 
 ## Nasıl Çalıştırılır?
 

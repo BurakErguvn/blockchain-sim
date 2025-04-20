@@ -131,10 +131,17 @@ impl Node {
     }
 
     //Node bağlantısı ekleme
-    pub fn add_connection(&mut self , node_id: usize) {
-        if !self.connections.contains(&node_id)&& node_id != self.id {
-            self.connections.push(node_id);
+    pub fn add_connection(&mut self, node_id: usize) {
+        if node_id == self.id {
+            return;
         }
+        
+        if self.connections.contains(&node_id) {
+            println!("Info: Node {} is already connected to Node {}.", self.id, node_id);
+            return;
+        }
+        
+        self.connections.push(node_id);
     }
     
     // Yeni bir blok ekle
@@ -204,12 +211,21 @@ impl BlockchainNetwork {
 
     //İki node arasında bağlantı oluşturma
     pub fn connect_nodes(&mut self, node1_id: usize, node2_id: usize) {
+        // Aynı node ise bağlantı kurma
+        if node1_id == node2_id {
+            return;
+        }
+
         if let Some(node1) = self.nodes.get_mut(&node1_id) {
             node1.add_connection(node2_id);
+        } else {
+            println!("Warning: Node {} not found.", node1_id);
         }
+        
         if let Some(node2) = self.nodes.get_mut(&node2_id) {
             node2.add_connection(node1_id);
-            
+        } else {
+            println!("Warning: Node {} not found.", node2_id);
         }
     }
 
@@ -265,6 +281,15 @@ impl BlockchainNetwork {
             // Sonra hash'i ve blockchain'i broadcast et
             self.broadcast_hash(new_hash);
             self.broadcast_blockchain(blockchain_clone);
+            
+            // Validator'ın yetkisini kaldır
+            if let Some(node) = self.nodes.get_mut(&validator_id) {
+                node.is_validator = false;
+                println!("Node {}'s validator status has been revoked after creating a block.", validator_id);
+            }
+            self.current_validator_id = None;
+            
+            println!("A new validator will need to be selected for the next transaction.");
         } else {
             println!("No validator selected.");
         }
@@ -291,7 +316,7 @@ impl BlockchainNetwork {
         if let Some(validator_id) = self.current_validator_id {
             if node_id == validator_id {
                 //Eğer validator hash'i değiştirirse, bu yeni hash olur
-                if let  Some(node) = self.nodes.get_mut(&node_id){
+                if let Some(node) = self.nodes.get_mut(&node_id){
                     node.hash = fake_hash.clone();
                     self.broadcast_hash(fake_hash.clone());
                     println!("Validator has changed the hash. New hash: {}", fake_hash);
