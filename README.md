@@ -26,6 +26,7 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 - Proof of Work: Madencilik işlemi için gereken zorluğu simüle eder
 - Distributed Ledger: Her node tüm blockchain'in bir kopyasını tutar
 - Süreli Validator Yetkisi: Validatorlar sadece bir blok oluşturduktan sonra yetkileri kaldırılır
+- Madencilik Sonucu Hash Dağıtımı: Nodelara işlem hash'i değil, Proof of Work sonucu oluşan hash dağıtılır
 
 ### Güvenlik Özellikleri
 - SHA-256 hash algoritması kullanımı
@@ -47,8 +48,9 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 
 3. **İşlem Oluşturma ve Madencilik**:
    - Yeni bir işlem (transaction) oluşturulur
-   - Validator bu işlemi alır ve işler
+   - Validator bu işlemi alır ve işler (SHA-256 hash'ini oluşturur)
    - Proof of Work algoritması ile yeni bir blok oluşturulur (belirli sayıda öncü sıfır)
+   - Blok madenciliği sonucu oluşan hash değeri (nonce'lu hash) tüm ağa dağıtılır
    - Yeni blok ağdaki tüm nodelara yayınlanır
    - Validator'ın yetkisi kaldırılır
 
@@ -76,7 +78,8 @@ Simülasyon şu senaryoları içerir:
 
 3. **Blockchain Manipülasyonu**:
    - Bir node blockchain verilerini değiştirmeye çalışır
-   - Diğer nodelar bu değişikliği tespit eder
+   - Veriyi değiştirdikten sonra PoW kurallarına uygun olarak yeni nonce ve hash hesaplar
+   - Diğer nodelar manipülasyonu tespit eder (veriler değiştiği halde PoW kuralları sağlanmış olsa bile)
    - Çoğunluk konsensüsü ile manipülasyon engellenir ve zincir düzeltilir
 
 ## Teknik Detaylar
@@ -115,11 +118,22 @@ cargo run
 
 ## Gelecek Geliştirmeler
 
-- Daha gerçekçi bir konsensüs algoritması (PoS, DPoS vb.)
 - Akıllı sözleşme desteği
 - Daha sofistike bir P2P ağ simülasyonu
-- Web arayüzü ile görselleştirme
 - Transactionlar için dijital imza desteği
+
+## Son Güncellemeler
+
+### Blockchain Manipülasyon Tespiti ve Düzeltme İyileştirmeleri
+
+- **Özel Hash Manipülasyonu**: Node'ların kendi oluşturdukları hash değerleriyle bloğu manipüle etme denemelerinin tespiti güçlendirildi.
+- **Update Blockchain Metodu İyileştirildi**: Aynı uzunluktaki blockchain'ler arasında karşılaştırma yaparak manipüle edilmiş blokların tespit edilmesi sağlandı.
+- **Manipülasyon Tespiti ve Düzeltme Sistemi**: Manipüle edilmiş bir blockchain, geçerli zincirle değiştirilecek şekilde iyileştirildi.
+- **Broadcast Mekanizması Geliştirildi**: Geçerli blockchain'in tüm ağa yayınlanması için ek kontroller eklendi.
+- **Data İçerik Analizi**: "Manipulated:" ön ekiyle başlayan verilerin algılanması ve değiştirilmesi için ek mantık eklendi.
+- **try_manipulate_blockchain Fonksiyonu Güncellemesi**: Fonksiyon artık özel hash değerleri alabilir ve yeni parametreye göre işlem yapabilir.
+
+Bu güncellemeler sayesinde, ağdaki nodelar manipülasyon girişimlerini daha etkin tespit edebilmekte ve blockchain'in tutarlılığını sağlamak için gerekli düzeltmeleri uygulayabilmektedir.
 
 ---
 

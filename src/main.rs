@@ -4,6 +4,7 @@ use std::time::Duration;
 use rand;
 use rand::Rng;
 use rand::thread_rng;
+use sha2::{Sha256, Digest};
 
 mod node;
 
@@ -92,15 +93,30 @@ fn main() {
     // Saldırgan node'u seç
     let attacker_id = rand::thread_rng().gen_range(0..network.node_count());
     
-    println!("Node {} is trying to manipulate the blockchain.", attacker_id);
-    network.try_manipulate_blockchain(attacker_id);
+    // Sahte transaction hash'i oluştur
+    let fake_timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let fake_transaction = format!("Tx {}-{}", "Fake_transaction", fake_timestamp);
     
-    // Manipüle edilen node'un blockchain'ini görüntüle
-    network.print_blockchain(attacker_id);
+    let mut hasher = Sha256::new();
+    hasher.update(fake_transaction.as_bytes());
+    let fake_hash_bytes = hasher.finalize();
+    let fake_hash = format!("{:x}", fake_hash_bytes); // Normal hash - PoW olmadan
+    
+    println!("Node {} is trying to manipulate the blockchain.", attacker_id);
+    println!("Sahte işlem içeriği: {}", fake_transaction);
+    println!("Oluşturulan sahte hash: {}", fake_hash);
+    println!("Not: Bu hash zorluk seviyesine uygun değil (PoW yok). try_manipulate_blockchain içinde madencilik yapılacak.");
+    network.try_manipulate_blockchain(attacker_id, Some(fake_hash)); // Sahte transaction hash'i ile manipülasyon
     
     // Başka bir node'un (sağlam) blockchain'ini görüntüle
     let honest_node_id = (attacker_id + 1) % network.node_count();
+    
+    // Network durumunu göster
+    network.print_network_state();
+    
+    network.print_blockchain(attacker_id);
+    
     network.print_blockchain(honest_node_id);
     
-    println!("Blockchain Network Simulation Finished.");
+    println!("\nBlockchain Network Simulation Finished.");
 }
