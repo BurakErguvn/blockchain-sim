@@ -7,8 +7,10 @@ use rand::thread_rng;
 use sha2::{Sha256, Digest};
 
 mod node;
+mod network;
+mod block;
 
-use node::BlockchainNetwork;
+use network::BlockchainNetwork;
 
 fn main() {
     let mut network = BlockchainNetwork::new();
@@ -37,55 +39,34 @@ fn main() {
     //Rasgele bir validator seç
     network.select_random_validator();
 
-    //İlk işlemi oluştur
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let transaction = format!("Tx {}-{}","Initial_transaction",timestamp );
-    network.create_transaction(&transaction);
+    // İlk 5 transaction'ı oluştur
+    println!("\n--- İLK 5 TRANSACTION OLUŞTURULUYOR ---");
+    for i in 1..=5 {
+        // Yeni bir validator seç (her transaction için farklı validator)
+        network.select_random_validator();
+        
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let transaction = format!("Tx {}-{}-{}", format!("Transaction_{}", i), timestamp, i);
+        println!("\nTransaction #{}: {}", i, transaction);
+        
+        // İşlemi ağa gönder
+        network.create_transaction(&transaction);
+        
+        // Kısa bir bekleyiş ekle
+        thread::sleep(Duration::from_millis(500));
+    }
     
     // İlk node'un blockchain'ini görüntüle
     if network.node_count() > 0 {
+        println!("\n--- BLOCKCHAIN DURUMU (5 TRANSACTION SONRASI) ---");
         network.print_blockchain(0);
     }
     
+    // Ağın durumunu görüntüle
     network.print_network_state();
 
     //Biraz bekleyelim
     thread::sleep(Duration::from_secs(2));
-
-    //Bir node'un hash'ini değiştirmeye çalış (validator olmayan)
-    let manipulator_id = if let Some(validator_id) = network.current_val_id() {
-        (validator_id + 1) % network.node_count()
-    } else {
-        // Validator yoksa, rasgele bir node seç
-        network.select_random_validator(); // Yeni bir validator seç
-        println!("No validator found. Selecting a new one.");
-        // Ve manipülatör olarak bir sonraki node'u seç
-        if let Some(validator_id) = network.current_val_id() {
-            (validator_id + 1) % network.node_count()
-        } else {
-            println!("Failed to select a validator. Using node 0 as manipulator.");
-            0 // Node 0'ı manipülatör olarak kullan
-        }
-    };
-    
-    println!("Node {} is trying to change the hash.", manipulator_id);
-    network.try_manipulate_hash(manipulator_id, "999999".to_string());
-    network.print_network_state();
-    
-    //Rasgele bir validator seç
-    network.select_random_validator();
-    
-    //Yeni bir işlem oluştur
-    let timestamp2 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let transaction2 = format!("Tx {}-{}","Second_transaction",timestamp2 );
-    network.create_transaction(&transaction2);
-    
-    // İlk node'un blockchain'ini tekrar görüntüle
-    if network.node_count() > 0 {
-        network.print_blockchain(0);
-    }
-    
-    network.print_network_state();
     
     // Bir node'un blockchain'ini manipüle etmeyi dene
     println!("\n--- NODE BLOCKCHAIN MANIPULATION TEST ---");
@@ -114,8 +95,12 @@ fn main() {
     // Network durumunu göster
     network.print_network_state();
     
+    // Saldırgan ve dürüst node'ların blockchain'lerini karşılaştır
+    println!("\n--- SALDIRGAN VE DÜRÜST NODE KARŞILAŞTIRMASI ---");
+    println!("Saldırgan Node ({})'un blockchain'i:", attacker_id);
     network.print_blockchain(attacker_id);
     
+    println!("Dürüst Node ({})'un blockchain'i:", honest_node_id);
     network.print_blockchain(honest_node_id);
     
     println!("\nBlockchain Network Simulation Finished.");

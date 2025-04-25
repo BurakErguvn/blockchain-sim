@@ -2,6 +2,8 @@
 
 Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı bir uygulamadır. Gerçek bir blockchain sisteminin temel özelliklerini ve konsept kanıtlamasını (proof of concept) göstermek amacıyla geliştirilmiştir.
 
+> [English Documentation - README_EN.md](README_EN.md)
+
 ## Özellikler
 
 ### Node Yapısı
@@ -93,7 +95,9 @@ Simülasyon şu senaryoları içerir:
 ### Proje Yapısı
 
 - **src/main.rs**: Ana simülasyon akışı ve test senaryoları
-- **src/node.rs**: Node, Block ve BlockchainNetwork yapıları ve ilgili implementasyonlar
+- **src/node.rs**: Node yapısı ve ilgili implementasyonlar
+- **src/block.rs**: Block yapısı ve ilgili fonksiyonlar
+- **src/network.rs**: BlockchainNetwork yapısı ve ilgili fonksiyonlar
 - **LICENSE**: MIT lisansı (Copyright 2024 Burak Ergüven)
 - **README.md**: Proje dokümantasyonu
 
@@ -124,16 +128,13 @@ cargo run
 
 ## Son Güncellemeler
 
-### Blockchain Manipülasyon Tespiti ve Düzeltme İyileştirmeleri
+### Modüler Yapı İyileştirmeleri
 
-- **Özel Hash Manipülasyonu**: Node'ların kendi oluşturdukları hash değerleriyle bloğu manipüle etme denemelerinin tespiti güçlendirildi.
-- **Update Blockchain Metodu İyileştirildi**: Aynı uzunluktaki blockchain'ler arasında karşılaştırma yaparak manipüle edilmiş blokların tespit edilmesi sağlandı.
-- **Manipülasyon Tespiti ve Düzeltme Sistemi**: Manipüle edilmiş bir blockchain, geçerli zincirle değiştirilecek şekilde iyileştirildi.
-- **Broadcast Mekanizması Geliştirildi**: Geçerli blockchain'in tüm ağa yayınlanması için ek kontroller eklendi.
-- **Data İçerik Analizi**: "Manipulated:" ön ekiyle başlayan verilerin algılanması ve değiştirilmesi için ek mantık eklendi.
-- **try_manipulate_blockchain Fonksiyonu Güncellemesi**: Fonksiyon artık özel hash değerleri alabilir ve yeni parametreye göre işlem yapabilir.
-
-Bu güncellemeler sayesinde, ağdaki nodelar manipülasyon girişimlerini daha etkin tespit edebilmekte ve blockchain'in tutarlılığını sağlamak için gerekli düzeltmeleri uygulayabilmektedir.
+- **Block Yapısının Ayrılması**: Block yapısı ve ilgili implementasyonlar `block.rs` dosyasına taşınarak daha modüler bir yapı oluşturuldu.
+- **Network Yapısının Ayrılması**: BlockchainNetwork yapısı ve ilgili implementasyonlar `network.rs` dosyasına taşındı.
+- **Kod Organizasyonu**: Projenin kod organizasyonu iyileştirildi, her yapının kendi dosyasında yer alması sağlandı.
+- **Kapsamlı Blok Doğrulama Sistemi**: Blockchain'lerin geçerliliği artık sadece içerik kontrolüne değil, zincir doğrulamasına ve hash karşılaştırmalarına dayanarak yapılıyor.
+- **Simülasyon İyileştirmesi**: Ana simülasyon artık 5 transaction oluşturarak daha gerçekçi bir blockchain oluşturuyor, sonrasında manipülasyon denemeleri yapılıyor.
 
 ---
 
