@@ -5,10 +5,12 @@ use rand;
 use rand::Rng;
 use rand::thread_rng;
 use sha2::{Sha256, Digest};
+use hex;
 
 mod node;
 mod network;
 mod block;
+mod wallet;
 
 use network::BlockchainNetwork;
 
@@ -45,9 +47,29 @@ fn main() {
         // Yeni bir validator seç (her transaction için farklı validator)
         network.select_random_validator();
         
+        // Validator ve alıcı node'ları seç
+        let validator_id = network.current_val_id().unwrap();
+        let receiver_id = (validator_id + 1) % network.node_count();
+        
+        // İşlem içeriği ve imzası
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let transaction = format!("Tx {}-{}-{}", format!("Transaction_{}", i), timestamp, i);
+        let transaction = format!("Tx {}: {} -> {} at {}", 
+            i, 
+            network.get_node_address(validator_id), 
+            network.get_node_address(receiver_id), 
+            timestamp
+        );
+        
+        // İşlemi imzala
+        let signature = network.sign_transaction(validator_id, &transaction);
+        let signature_hex = hex::encode(&signature);
+        
         println!("\nTransaction #{}: {}", i, transaction);
+        println!("İmza: {}", signature_hex);
+        
+        // İmzayı doğrula
+        let is_valid = network.verify_transaction(validator_id, &transaction, &signature);
+        println!("İmza Doğrulama: {}", if is_valid { "Başarılı" } else { "Başarısız" });
         
         // İşlemi ağa gönder
         network.create_transaction(&transaction);
@@ -76,7 +98,11 @@ fn main() {
     
     // Sahte transaction hash'i oluştur
     let fake_timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let fake_transaction = format!("Tx {}-{}", "Fake_transaction", fake_timestamp);
+    let fake_transaction = format!("Tx {}: {} -> SAHTE_ADRES at {}", 
+        6, 
+        network.get_node_address(attacker_id), 
+        fake_timestamp
+    );
     
     let mut hasher = Sha256::new();
     hasher.update(fake_transaction.as_bytes());

@@ -10,6 +10,13 @@ This project is a Rust-based application that simulates the basic operation of a
 - There are connections and communication between nodes
 - Each node has a unique identifier (ID)
 - Nodes cannot connect to themselves
+- Each node has its own wallet and unique cryptocurrency address
+
+### Wallet Structure
+- Uses private-public key pairs (ECDSA) for secure transactions
+- Private keys are generated using 256-bit random numbers
+- Produces Bitcoin-like addresses in Base58 format from public keys
+- Contains transaction signing and verification functions
 
 ### Block Structure
 - Index: The sequence number of the block in the chain
@@ -34,11 +41,13 @@ This project is a Rust-based application that simulates the basic operation of a
 - Manipulation detection and correction system
 - Majority-based consensus mechanism
 - System to prevent power concentration in a single validator
+- Transaction verification with ECDSA digital signatures
 
 ## How It Works
 
 1. **Network Creation**:
    - Various nodes are created and connected to each other (not to themselves)
+   - Each node creates a wallet (private-public key pair) and address
    - Initially, each node contains a Genesis block
 
 2. **Validator Selection**:
@@ -47,7 +56,8 @@ This project is a Rust-based application that simulates the basic operation of a
    - Each validator can only create one block, then their authority is revoked
 
 3. **Transaction Creation and Mining**:
-   - A new transaction is created
+   - A new transaction is created from source to destination
+   - The transaction is digitally signed and verified by the sender
    - The validator receives and processes this transaction (creates SHA-256 hash)
    - A new block is created with the Proof of Work algorithm (requiring a specific number of leading zeros)
    - The hash value resulting from block mining (hash with nonce) is distributed to the entire network
@@ -69,6 +79,7 @@ The simulation includes the following scenarios:
 
 1. **Normal Transaction Flow**:
    - A validator is selected and adds a new transaction
+   - The transaction is digitally signed and verified
    - Block mining is performed and added to the chain
    - The validator's authority is revoked
 
@@ -89,6 +100,8 @@ The simulation includes the following scenarios:
 - **Programming Language**: Rust
 - **Hash Algorithm**: SHA-256 (sha2 crate)
 - **Random Number Generator**: rand crate
+- **Cryptography**: secp256k1 (ECDSA signing)
+- **Address Encoding**: bs58 (Base58 encoding)
 
 ### Project Structure
 
@@ -96,6 +109,7 @@ The simulation includes the following scenarios:
 - **src/node.rs**: Node structure and related implementations
 - **src/block.rs**: Block structure and related functions
 - **src/network.rs**: BlockchainNetwork structure and related functions
+- **src/wallet.rs**: Wallet structure, key generation and signing functions
 - **LICENSE**: MIT license (Copyright 2024 Burak Ergüven)
 - **README.md**: Project documentation (Turkish)
 - **README_EN.md**: Project documentation (English)
@@ -104,9 +118,10 @@ The simulation includes the following scenarios:
 
 - **Decentralized**: Distributed structure among nodes
 - **Transparent**: All nodes can see the blockchain
-- **Secure**: SHA-256 hash and verification mechanisms
+- **Secure**: SHA-256 hash and ECDSA signing
 - **Immutable**: Changes are detected and corrected
 - **Democratic**: No node can have permanent control
+- **Cryptographic Identity**: Each node has a unique address
 
 ## How to Run
 
@@ -123,9 +138,16 @@ cargo run
 
 - Smart contract support
 - More sophisticated P2P network simulation
-- Digital signature support for transactions
+- UTXO or account-based balance system
 
 ## Recent Updates
+
+### Wallet and Address System (Latest Update)
+- **Wallet Addition**: Added ECDSA-based private-public key pair wallet for each node
+- **Realistic Address Format**: Created Bitcoin-like addresses in Base58 format
+- **Digital Signatures**: Transactions are now signed by the sender and verified
+- **Realistic Transaction Format**: Transactions are now in "SourceAddress -> DestinationAddress" format
+- **Signature Verification Process**: Verification and security check of ECDSA signatures
 
 ### Modular Structure Improvements
 

@@ -31,6 +31,33 @@ impl BlockchainNetwork {
         self.nodes.insert(id, node);
         id
     }
+    
+    // Node'un adresini alma
+    pub fn get_node_address(&self, node_id: usize) -> String {
+        if let Some(node) = self.nodes.get(&node_id) {
+            node.get_address().to_string()
+        } else {
+            "Bilinmeyen Node".to_string()
+        }
+    }
+    
+    // İşlemi imzala
+    pub fn sign_transaction(&self, node_id: usize, transaction_data: &str) -> Vec<u8> {
+        if let Some(node) = self.nodes.get(&node_id) {
+            node.sign_transaction(transaction_data)
+        } else {
+            Vec::new() // Boş imza (hata durumu)
+        }
+    }
+    
+    // İmzayı doğrula
+    pub fn verify_transaction(&self, node_id: usize, transaction_data: &str, signature: &[u8]) -> bool {
+        if let Some(node) = self.nodes.get(&node_id) {
+            node.verify_transaction(transaction_data, signature)
+        } else {
+            false // Hata durumu
+        }
+    }
 
     //İki node arasında bağlantı oluşturma
     pub fn connect_nodes(&mut self, node1_id: usize, node2_id: usize) {

@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 // Block modülünü kullan
 use crate::block::Block;
+use crate::wallet::Wallet;
 
 //Node sınıfı
 #[derive(Debug)]
@@ -17,12 +18,13 @@ pub struct Node {
     pub is_validator: bool,
     pub valinfo: String,
     pub blockchain: Vec<Block>, // Blok zinciri
+    pub wallet: Wallet, // Cüzdan
 }
 
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Node ID: {}, Hash: {}, Validator: {}, Connections: {:?}, Blockchain Length: {}", 
-            self.id, self.hash, self.is_validator, self.connections, self.blockchain.len())
+        write!(f, "Node ID: {}, Address: {}, Hash: {}, Validator: {}, Connections: {:?}, Blockchain Length: {}", 
+            self.id, self.wallet.get_address(), self.hash, self.is_validator, self.connections, self.blockchain.len())
     }
 }
 
@@ -46,7 +48,13 @@ impl Node {
             valinfo: String::new(),
             hash: String::new(),
             blockchain,
+            wallet: Wallet::new(), // Yeni bir cüzdan oluştur
         }
+    }
+
+    // Cüzdan adresini almak için yeni fonksiyon
+    pub fn get_address(&self) -> &str {
+        self.wallet.get_address()
     }
 
     //Gelen valinfoyu hash'e çeviren fonksiyon
@@ -65,6 +73,16 @@ impl Node {
             println!("Node {} is not a validator.", self.id);
             String::new()
         }
+    }
+
+    // Transaction'ı imzala
+    pub fn sign_transaction(&self, transaction_data: &str) -> Vec<u8> {
+        self.wallet.sign(transaction_data.as_bytes())
+    }
+    
+    // İmzayı doğrula
+    pub fn verify_transaction(&self, transaction_data: &str, signature: &[u8]) -> bool {
+        self.wallet.verify(transaction_data.as_bytes(), signature)
     }
 
     //Hash değerini güncelleme

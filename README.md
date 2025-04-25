@@ -12,6 +12,13 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 - Nodelar arasında bağlantılar ve iletişim vardır
 - Her node'un benzersiz bir kimliği (ID) bulunur
 - Nodelar kendileriyle bağlantı kuramazlar
+- Her node'un kendi cüzdanı ve benzersiz kripto para adresi vardır
+
+### Wallet (Cüzdan) Yapısı
+- Özel-genel anahtar çifti (ECDSA) kullanarak güvenli işlemler yapar
+- Özel anahtarlar, 256-bit rastgele sayılar kullanılarak oluşturulur
+- Genel anahtarlardan Base58 formatında Bitcoin benzeri adresler üretir
+- İşlem imzalama ve doğrulama fonksiyonları içerir
 
 ### Block Yapısı
 - Index: Blokun zincirdeki sıra numarası
@@ -36,11 +43,13 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 - Manipülasyon tespiti ve düzeltme sistemi
 - Çoğunluk tabanlı konsensüs mekanizması
 - Tek validatorda güç yoğunlaşmasını önleme sistemi
+- ECDSA dijital imzaları ile işlem doğrulama
 
 ## Nasıl Çalışır?
 
 1. **Ağ Oluşturma**:
    - Çeşitli nodelar oluşturulur ve birbirine bağlanır (kendileriyle değil)
+   - Her node bir cüzdan (özel-genel anahtar çifti) ve adres oluşturur
    - Başlangıçta her node bir Genesis bloğu içerir
 
 2. **Validator Seçimi**:
@@ -49,7 +58,8 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
    - Her validator sadece bir blok oluşturabilir, sonra yetkisi alınır
 
 3. **İşlem Oluşturma ve Madencilik**:
-   - Yeni bir işlem (transaction) oluşturulur
+   - Yeni bir işlem (transaction) kaynaktan hedefe oluşturulur
+   - İşlem, gönderen tarafından dijital olarak imzalanır ve doğrulanır
    - Validator bu işlemi alır ve işler (SHA-256 hash'ini oluşturur)
    - Proof of Work algoritması ile yeni bir blok oluşturulur (belirli sayıda öncü sıfır)
    - Blok madenciliği sonucu oluşan hash değeri (nonce'lu hash) tüm ağa dağıtılır
@@ -71,6 +81,7 @@ Simülasyon şu senaryoları içerir:
 
 1. **Normal İşlem Akışı**:
    - Validator seçilir ve yeni bir işlem (transaction) ekler
+   - İşlem dijital olarak imzalanır ve doğrulanır
    - Blok madenciliği yapılır ve zincire eklenir
    - Validator'ın yetkisi kaldırılır
 
@@ -91,6 +102,8 @@ Simülasyon şu senaryoları içerir:
 - **Programlama Dili**: Rust
 - **Hash Algoritması**: SHA-256 (sha2 crate)
 - **Rastgele Sayı Üreteci**: rand crate
+- **Kriptografi**: secp256k1 (ECDSA imzalama)
+- **Adres Kodlama**: bs58 (Base58 kodlama)
 
 ### Proje Yapısı
 
@@ -98,6 +111,7 @@ Simülasyon şu senaryoları içerir:
 - **src/node.rs**: Node yapısı ve ilgili implementasyonlar
 - **src/block.rs**: Block yapısı ve ilgili fonksiyonlar
 - **src/network.rs**: BlockchainNetwork yapısı ve ilgili fonksiyonlar
+- **src/wallet.rs**: Cüzdan yapısı, anahtar üretimi ve imzalama fonksiyonları
 - **LICENSE**: MIT lisansı (Copyright 2024 Burak Ergüven)
 - **README.md**: Proje dokümantasyonu
 
@@ -105,9 +119,10 @@ Simülasyon şu senaryoları içerir:
 
 - **Decentralized (Merkezi Olmayan)**: Nodelar arasında dağıtılmış yapı
 - **Transparent (Şeffaf)**: Tüm nodelar blockchain'i görebilir
-- **Secure (Güvenli)**: SHA-256 hash ve doğrulama mekanizmaları
+- **Secure (Güvenli)**: SHA-256 hash ve ECDSA imzalama
 - **Immutable (Değiştirilemez)**: Değişiklikler tespit edilir ve düzeltilir
 - **Democratic (Demokratik)**: Hiçbir node sürekli kontrol sahibi olamaz
+- **Cryptographic Identity (Kriptografik Kimlik)**: Her node benzersiz bir adrese sahip
 
 ## Nasıl Çalıştırılır?
 
@@ -124,9 +139,16 @@ cargo run
 
 - Akıllı sözleşme desteği
 - Daha sofistike bir P2P ağ simülasyonu
-- Transactionlar için dijital imza desteği
+- UTXO veya hesap tabanlı bakiye sistemi
 
 ## Son Güncellemeler
+
+### Wallet ve Adres Sistemi (Son Güncelleme)
+- **Cüzdan Eklemesi**: Her node için ECDSA tabanlı özel-genel anahtar çifti içeren cüzdan eklendi
+- **Gerçekçi Adres Formatı**: Bitcoin benzeri Base58 formatında adresler oluşturuldu
+- **Dijital İmzalar**: İşlemler artık gönderen tarafından imzalanıyor ve doğrulanıyor
+- **Gerçekçi İşlem Formatı**: İşlemler artık "KaynakAdres -> HedefAdres" formatında
+- **İmza Doğrulama Süreci**: ECDSA imzalarının doğrulanması ve güvenlik kontrolü
 
 ### Modüler Yapı İyileştirmeleri
 
