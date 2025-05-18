@@ -3,14 +3,12 @@ use std::thread;
 use std::time::Duration;
 use rand;
 use rand::Rng;
-use rand::thread_rng;
-use sha2::{Sha256, Digest};
-use hex;
 
 mod node;
 mod network;
 mod block;
 mod wallet;
+mod transaction;
 
 use network::BlockchainNetwork;
 
@@ -20,114 +18,147 @@ fn main() {
     // Madencilik zorluğunu ayarla (2 = hash'in başında 2 tane 0 olmalı)
     network.set_difficulty(2);
 
-    // 10 tane node oluştur
-    for _ in 0..10 {
-        network.add_node();
+    // 5 tane node oluştur
+    println!("\n--- NODE'LAR OLUŞTURULUYOR ---");
+    for i in 0..5 {
+        let node_id = network.add_node();
+        println!("Node {} oluşturuldu", node_id);
     }
 
     // Node'ları birbirine bağla (tam bağlı ağ)
-    println!("\nCreating connections between nodes...");
+    println!("\n--- NODE'LAR ARASI BAĞLANTILAR KURULUYOR ---");
     for i in 0..network.node_count() {
         for j in (i + 1)..network.node_count() {
             network.connect_nodes(i, j);
         }
     }
-    println!("All connections established.");
+    println!("Tüm node'lar arasında bağlantılar kuruldu.");
 
-    //Başlangıç durumunu görüntüle
-    println!("Blockchain Network Created.");
+    // Başlangıç durumunu görüntüle
+    println!("\n--- BLOCKCHAIN AĞI OLUŞTURULDU ---");
     network.print_network_state();
 
-    //Rasgele bir validator seç
+    // İlk madenci seç ve genesis bloğu kaz
+    println!("\n--- GENESIS BLOĞU KAZILIYOR ---");
     network.select_random_validator();
-
-    // İlk 5 transaction'ı oluştur
-    println!("\n--- İLK 5 TRANSACTION OLUŞTURULUYOR ---");
-    for i in 1..=5 {
-        // Yeni bir validator seç (her transaction için farklı validator)
-        network.select_random_validator();
-        
-        // Validator ve alıcı node'ları seç
-        let validator_id = network.current_val_id().unwrap();
-        let receiver_id = (validator_id + 1) % network.node_count();
-        
-        // İşlem içeriği ve imzası
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let transaction = format!("Tx {}: {} -> {} at {}", 
-            i, 
-            network.get_node_address(validator_id), 
-            network.get_node_address(receiver_id), 
-            timestamp
-        );
-        
-        // İşlemi imzala
-        let signature = network.sign_transaction(validator_id, &transaction);
-        let signature_hex = hex::encode(&signature);
-        
-        println!("\nTransaction #{}: {}", i, transaction);
-        println!("İmza: {}", signature_hex);
-        
-        // İmzayı doğrula
-        let is_valid = network.verify_transaction(validator_id, &transaction, &signature);
-        println!("İmza Doğrulama: {}", if is_valid { "Başarılı" } else { "Başarısız" });
-        
-        // İşlemi ağa gönder
-        network.create_transaction(&transaction);
-        
-        // Kısa bir bekleyiş ekle
-        thread::sleep(Duration::from_millis(500));
+    let validator_id = network.current_val_id().unwrap();
+    println!("Node {} madenci olarak seçildi ve genesis bloğunu kazacak.", validator_id);
+    
+    // Genesis bloğunu kaz
+    if let Some(block) = network.mine_block() {
+        println!("Genesis blok oluşturuldu");
+    } else {
+        println!("Genesis blok oluşturulamadı!");
+        return; // Genesis blok oluşturulamazsa programdan çık
     }
     
-    // İlk node'un blockchain'ini görüntüle
-    if network.node_count() > 0 {
-        println!("\n--- BLOCKCHAIN DURUMU (5 TRANSACTION SONRASI) ---");
-        network.print_blockchain(0);
-    }
-    
-    // Ağın durumunu görüntüle
+    // Genesis blok sonrası ağın durumunu görüntüle
+    println!("\n--- GENESIS BLOĞU SONRASI AĞ DURUMU ---");
     network.print_network_state();
-
-    //Biraz bekleyelim
-    thread::sleep(Duration::from_secs(2));
     
-    // Bir node'un blockchain'ini manipüle etmeyi dene
-    println!("\n--- NODE BLOCKCHAIN MANIPULATION TEST ---");
+    // Şimdi işlemler oluştur
+    println!("\n--- İŞLEMLER OLUŞTURULUYOR ---");
     
-    // Saldırgan node'u seç
-    let attacker_id = rand::thread_rng().gen_range(0..network.node_count());
+    // İlk işlem: Madenci node'dan Node 1'e 5 coin transfer
+    let sender_id = validator_id; // Madenci node'un ID'si
+    let receiver_id = (validator_id + 1) % network.node_count(); // Bir sonraki node
+    let amount = 5_0000_0000; // 5 coin
     
-    // Sahte transaction hash'i oluştur
-    let fake_timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let fake_transaction = format!("Tx {}: {} -> SAHTE_ADRES at {}", 
-        6, 
-        network.get_node_address(attacker_id), 
-        fake_timestamp
+    println!("\nNode {} -> Node {}: {} coin transfer ediliyor", 
+        sender_id, receiver_id, amount as f64 / 100_000_000.0);
+    
+    let tx1 = network.create_transaction(
+        sender_id, 
+        &network.get_node_address(receiver_id), 
+        amount
     );
     
-    let mut hasher = Sha256::new();
-    hasher.update(fake_transaction.as_bytes());
-    let fake_hash_bytes = hasher.finalize();
-    let fake_hash = format!("{:x}", fake_hash_bytes); // Normal hash - PoW olmadan
+    if let Some(_) = tx1 {
+        println!("İşlem oluşturuldu");
+    } else {
+        println!("İşlem oluşturulamadı!");
+    }
     
-    println!("Node {} is trying to manipulate the blockchain.", attacker_id);
-    println!("Sahte işlem içeriği: {}", fake_transaction);
-    println!("Oluşturulan sahte hash: {}", fake_hash);
-    println!("Not: Bu hash zorluk seviyesine uygun değil (PoW yok). try_manipulate_blockchain içinde madencilik yapılacak.");
-    network.try_manipulate_blockchain(attacker_id, Some(fake_hash)); // Sahte transaction hash'i ile manipülasyon
+    // Yeni bir madenci seç
+    println!("\n--- YENİ MADENCİ SEÇİLİYOR ---");
+    network.select_random_validator();
+    let new_validator_id = network.current_val_id().unwrap();
+    println!("Node {} madenci olarak seçildi.", new_validator_id);
     
-    // Başka bir node'un (sağlam) blockchain'ini görüntüle
-    let honest_node_id = (attacker_id + 1) % network.node_count();
+    // İkinci blok için madencilik yap
+    println!("\n--- İKİNCİ BLOK İÇİN MADENCİLİK YAPILIYOR ---");
+    if let Some(block) = network.mine_block() {
+        println!("Yeni blok oluşturuldu: {}", block.hash);
+        println!("Blok içindeki işlem sayısı: {}", block.transactions.len());
+        
+        // İşlemleri göster
+        for (i, tx) in block.transactions.iter().enumerate() {
+            println!("İşlem {}: {}", i, tx.id);
+            if i == 0 {
+                println!("  (Coinbase işlemi - Madencilik ödülü)");
+            }
+        }
+    } else {
+        println!("Blok oluşturulamadı!");
+    }
     
-    // Network durumunu göster
+    // İkinci blok sonrası ağın durumunu görüntüle
+    println!("\n--- İKİNCİ BLOK SONRASI AĞ DURUMU ---");
     network.print_network_state();
     
-    // Saldırgan ve dürüst node'ların blockchain'lerini karşılaştır
-    println!("\n--- SALDIRGAN VE DÜRÜST NODE KARŞILAŞTIRMASI ---");
-    println!("Saldırgan Node ({})'un blockchain'i:", attacker_id);
-    network.print_blockchain(attacker_id);
+    // Şimdi Node 1'in parası var, bir işlem deneyelim
+    println!("\n--- ALICI NODE'DAN İŞLEM DENEMESİ ---");
+    let sender_id = receiver_id; // Önceki işlemde para alan node
+    let new_receiver_id = (receiver_id + 1) % network.node_count(); // Bir sonraki node
+    let amount = 2_0000_0000; // 2 coin
     
-    println!("Dürüst Node ({})'un blockchain'i:", honest_node_id);
-    network.print_blockchain(honest_node_id);
+    println!("Node {} -> Node {}: {} coin transfer ediliyor", 
+        sender_id, new_receiver_id, amount as f64 / 100_000_000.0);
+    
+    let tx3 = network.create_transaction(
+        sender_id, 
+        &network.get_node_address(new_receiver_id), 
+        amount
+    );
+    
+    if let Some(_) = tx3 {
+        println!("İşlem oluşturuldu");
+    } else {
+        println!("İşlem oluşturulamadı!");
+    }
+    
+    // Yeni bir madenci seç
+    println!("\n--- YENİ MADENCİ SEÇİLİYOR ---");
+    network.select_random_validator();
+    let third_validator_id = network.current_val_id().unwrap();
+    println!("Node {} madenci olarak seçildi.", third_validator_id);
+    
+    // Üçüncü blok için madencilik yap
+    println!("\n--- ÜÇÜNCÜ BLOK İÇİN MADENCİLİK YAPILIYOR ---");
+    if let Some(block) = network.mine_block() {
+        println!("Yeni blok oluşturuldu: {}", block.hash);
+        println!("Blok içindeki işlem sayısı: {}", block.transactions.len());
+        
+        // İşlemleri göster
+        for (i, tx) in block.transactions.iter().enumerate() {
+            println!("İşlem {}: {}", i, tx.id);
+            if i == 0 {
+                println!("  (Coinbase işlemi - Madencilik ödülü)");
+            }
+        }
+    } else {
+        println!("Blok oluşturulamadı!");
+    }
+    
+    // Son durumu görüntüle
+    println!("\n--- SON AĞ DURUMU ---");
+    network.print_network_state();
+    
+    // Tüm node'ların blockchain'lerini görüntüle
+    println!("\n--- TÜM NODE'LARIN BLOCKCHAIN'LERİ ---");
+    for i in 0..network.node_count() {
+        network.print_blockchain(i);
+    }
     
     println!("\nBlockchain Network Simulation Finished.");
 }

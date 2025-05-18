@@ -5,6 +5,7 @@ This project is a Rust-based application that simulates the basic operation of a
 ## Features
 
 ### Node Structure
+
 - Each node maintains a copy of the blockchain
 - Validators can create new blocks
 - There are connections and communication between nodes
@@ -13,12 +14,15 @@ This project is a Rust-based application that simulates the basic operation of a
 - Each node has its own wallet and unique cryptocurrency address
 
 ### Wallet Structure
+
 - Uses private-public key pairs (ECDSA) for secure transactions
 - Private keys are generated using 256-bit random numbers
 - Produces Bitcoin-like addresses in Base58 format from public keys
 - Contains transaction signing and verification functions
+- Manages balances using the UTXO (Unspent Transaction Output) model
 
 ### Block Structure
+
 - Index: The sequence number of the block in the chain
 - Timestamp: The time stamp when the block was created
 - Data: Data stored in the block (transactions)
@@ -27,6 +31,7 @@ This project is a Rust-based application that simulates the basic operation of a
 - Nonce: Counter used for the Proof of Work algorithm
 
 ### Blockchain Features
+
 - Genesis Block: The first block of the chain
 - Immutability: Block data cannot be changed, changes are detected
 - Consensus: Validation by majority rule
@@ -36,6 +41,7 @@ This project is a Rust-based application that simulates the basic operation of a
 - Mining Result Hash Distribution: Nodes receive the hash resulting from Proof of Work, not the transaction hash
 
 ### Security Features
+
 - SHA-256 hash algorithm usage
 - Block verification mechanism
 - Manipulation detection and correction system
@@ -46,18 +52,22 @@ This project is a Rust-based application that simulates the basic operation of a
 ## How It Works
 
 1. **Network Creation**:
+
    - Various nodes are created and connected to each other (not to themselves)
    - Each node creates a wallet (private-public key pair) and address
    - Initially, each node contains a Genesis block
 
 2. **Validator Selection**:
+
    - A random node is selected as a validator
    - Only validators can create new blocks
    - Each validator can only create one block, then their authority is revoked
 
 3. **Transaction Creation and Mining**:
+
    - A new transaction is created from source to destination
    - The transaction is digitally signed and verified by the sender
+   - Transactions are processed using the UTXO (Unspent Transaction Output) model
    - The validator receives and processes this transaction (creates SHA-256 hash)
    - A new block is created with the Proof of Work algorithm (requiring a specific number of leading zeros)
    - The hash value resulting from block mining (hash with nonce) is distributed to the entire network
@@ -65,6 +75,7 @@ This project is a Rust-based application that simulates the basic operation of a
    - The validator's authority is revoked
 
 4. **Security and Validation**:
+
    - Nodes continuously check the integrity of the blockchain
    - Manipulation attempts are detected
    - Corrupted blockchains are corrected by majority rule
@@ -78,12 +89,14 @@ This project is a Rust-based application that simulates the basic operation of a
 The simulation includes the following scenarios:
 
 1. **Normal Transaction Flow**:
+
    - A validator is selected and adds a new transaction
    - The transaction is digitally signed and verified
    - Block mining is performed and added to the chain
    - The validator's authority is revoked
 
 2. **Hash Manipulation**:
+
    - A regular node attempts to change the hash
    - The consensus mechanism detects and rejects this
 
@@ -109,7 +122,8 @@ The simulation includes the following scenarios:
 - **src/node.rs**: Node structure and related implementations
 - **src/block.rs**: Block structure and related functions
 - **src/network.rs**: BlockchainNetwork structure and related functions
-- **src/wallet.rs**: Wallet structure, key generation and signing functions
+- **src/wallet.rs**: Wallet structure, key generation, signing functions and UTXO management
+- **src/transaction.rs**: Transaction structure, UTXO model and transaction verification functions
 - **LICENSE**: MIT license (Copyright 2024 Burak Ergüven)
 - **README.md**: Project documentation (Turkish)
 - **README_EN.md**: Project documentation (English)
@@ -122,6 +136,8 @@ The simulation includes the following scenarios:
 - **Immutable**: Changes are detected and corrected
 - **Democratic**: No node can have permanent control
 - **Cryptographic Identity**: Each node has a unique address
+- **UTXO-Based**: Uses Unspent Transaction Outputs model similar to Bitcoin
+- **Transaction Verification**: Verifies existence and ownership of UTXOs
 
 ## How to Run
 
@@ -138,11 +154,19 @@ cargo run
 
 - Smart contract support
 - More sophisticated P2P network simulation
-- UTXO or account-based balance system
 
 ## Recent Updates
 
-### Wallet and Address System (Latest Update)
+### UTXO-Based Transaction System (Latest Update)
+
+- **UTXO Model**: Added Unspent Transaction Outputs (UTXO) model for a realistic balance management system
+- **Balance Calculation**: Balances are now calculated as the sum of unspent transaction outputs
+- **Transaction Inputs and Outputs**: Each transaction includes UTXOs to be spent (inputs) and new UTXOs to be created (outputs)
+- **Change Mechanism**: Implemented returning change to the sender during transactions
+- **Genesis Block Improvement**: Genesis block is now created during the mining process, ensuring correct distribution of initial coins
+
+### Wallet and Address System
+
 - **Wallet Addition**: Added ECDSA-based private-public key pair wallet for each node
 - **Realistic Address Format**: Created Bitcoin-like addresses in Base58 format
 - **Digital Signatures**: Transactions are now signed by the sender and verified
@@ -159,4 +183,4 @@ cargo run
 
 ---
 
-This project is an educational simulation developed to understand and learn the basic principles of blockchain technology. 
+This project is an educational simulation developed to understand and learn the basic principles of blockchain technology.

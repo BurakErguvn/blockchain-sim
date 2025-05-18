@@ -7,6 +7,7 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 ## Özellikler
 
 ### Node Yapısı
+
 - Her node bir blockchain kopyası tutar
 - Validatorlar (düğüm doğrulayıcıları) yeni blokları oluşturabilir
 - Nodelar arasında bağlantılar ve iletişim vardır
@@ -15,12 +16,15 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 - Her node'un kendi cüzdanı ve benzersiz kripto para adresi vardır
 
 ### Wallet (Cüzdan) Yapısı
+
 - Özel-genel anahtar çifti (ECDSA) kullanarak güvenli işlemler yapar
 - Özel anahtarlar, 256-bit rastgele sayılar kullanılarak oluşturulur
 - Genel anahtarlardan Base58 formatında Bitcoin benzeri adresler üretir
 - İşlem imzalama ve doğrulama fonksiyonları içerir
+- UTXO (Harcanmamış İşlem Çıktıları) modelini kullanarak bakiye yönetimi yapar
 
 ### Block Yapısı
+
 - Index: Blokun zincirdeki sıra numarası
 - Timestamp: Bloğun oluşturulduğu zaman damgası
 - Data: Blok içinde saklanan veriler (transactions)
@@ -29,6 +33,7 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 - Nonce: Proof of Work algoritması için kullanılan sayaç
 
 ### Blockchain Özellikleri
+
 - Genesis Bloğu: Zincirin ilk bloğu
 - Immutability (Değiştirilemezlik): Blok verileri değiştirilemez, değişirse tespit edilir
 - Consensus (Uzlaşma): Çoğunluk kuralı ile validasyon
@@ -38,6 +43,7 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 - Madencilik Sonucu Hash Dağıtımı: Nodelara işlem hash'i değil, Proof of Work sonucu oluşan hash dağıtılır
 
 ### Güvenlik Özellikleri
+
 - SHA-256 hash algoritması kullanımı
 - Blok doğrulama mekanizması
 - Manipülasyon tespiti ve düzeltme sistemi
@@ -48,18 +54,22 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 ## Nasıl Çalışır?
 
 1. **Ağ Oluşturma**:
+
    - Çeşitli nodelar oluşturulur ve birbirine bağlanır (kendileriyle değil)
    - Her node bir cüzdan (özel-genel anahtar çifti) ve adres oluşturur
    - Başlangıçta her node bir Genesis bloğu içerir
 
 2. **Validator Seçimi**:
+
    - Rastgele bir node validator olarak seçilir
    - Sadece validatorlar yeni blok oluşturabilir
    - Her validator sadece bir blok oluşturabilir, sonra yetkisi alınır
 
 3. **İşlem Oluşturma ve Madencilik**:
+
    - Yeni bir işlem (transaction) kaynaktan hedefe oluşturulur
    - İşlem, gönderen tarafından dijital olarak imzalanır ve doğrulanır
+   - İşlemler UTXO (Harcanmamış İşlem Çıktıları) modeli kullanılarak işlenir
    - Validator bu işlemi alır ve işler (SHA-256 hash'ini oluşturur)
    - Proof of Work algoritması ile yeni bir blok oluşturulur (belirli sayıda öncü sıfır)
    - Blok madenciliği sonucu oluşan hash değeri (nonce'lu hash) tüm ağa dağıtılır
@@ -67,6 +77,7 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
    - Validator'ın yetkisi kaldırılır
 
 4. **Güvenlik ve Doğrulama**:
+
    - Nodelar blockchain'in bütünlüğünü sürekli kontrol eder
    - Manipülasyon girişimleri tespit edilir
    - Bozulmuş blockchain'ler, çoğunluk kuralı ile düzeltilir
@@ -80,12 +91,14 @@ Bu proje, bir blockchain ağının temel işleyişini simüle eden Rust tabanlı
 Simülasyon şu senaryoları içerir:
 
 1. **Normal İşlem Akışı**:
+
    - Validator seçilir ve yeni bir işlem (transaction) ekler
    - İşlem dijital olarak imzalanır ve doğrulanır
    - Blok madenciliği yapılır ve zincire eklenir
    - Validator'ın yetkisi kaldırılır
 
 2. **Hash Manipülasyonu**:
+
    - Normal bir node hash'i değiştirmeye çalışır
    - Konsensüs mekanizması bunu tespit eder ve reddeder
 
@@ -111,7 +124,8 @@ Simülasyon şu senaryoları içerir:
 - **src/node.rs**: Node yapısı ve ilgili implementasyonlar
 - **src/block.rs**: Block yapısı ve ilgili fonksiyonlar
 - **src/network.rs**: BlockchainNetwork yapısı ve ilgili fonksiyonlar
-- **src/wallet.rs**: Cüzdan yapısı, anahtar üretimi ve imzalama fonksiyonları
+- **src/wallet.rs**: Cüzdan yapısı, anahtar üretimi, imzalama fonksiyonları ve UTXO yönetimi
+- **src/transaction.rs**: İşlem yapısı, UTXO modeli ve işlem doğrulama fonksiyonları
 - **LICENSE**: MIT lisansı (Copyright 2024 Burak Ergüven)
 - **README.md**: Proje dokümantasyonu
 
@@ -123,6 +137,8 @@ Simülasyon şu senaryoları içerir:
 - **Immutable (Değiştirilemez)**: Değişiklikler tespit edilir ve düzeltilir
 - **Democratic (Demokratik)**: Hiçbir node sürekli kontrol sahibi olamaz
 - **Cryptographic Identity (Kriptografik Kimlik)**: Her node benzersiz bir adrese sahip
+- **UTXO-Based (UTXO Tabanlı)**: Bitcoin'e benzer şekilde Harcanmamış İşlem Çıktıları modeli kullanılır
+- **Transaction Verification (işlem Doğrulama)**: UTXO'ların varlığı ve sahipliği kontrol edilir
 
 ## Nasıl Çalıştırılır?
 
@@ -139,11 +155,19 @@ cargo run
 
 - Akıllı sözleşme desteği
 - Daha sofistike bir P2P ağ simülasyonu
-- UTXO veya hesap tabanlı bakiye sistemi
 
 ## Son Güncellemeler
 
-### Wallet ve Adres Sistemi (Son Güncelleme)
+### UTXO Tabanlı İşlem Sistemi (En Son Güncelleme)
+
+- **UTXO Modeli**: Harcanmamış İşlem Çıktıları (UTXO) modeli eklenerek gerçekçi bir bakiye yönetim sistemi oluşturuldu
+- **Bakiye Hesaplama**: Bakiyeler artık harcanmamış işlem çıktılarının toplamı olarak hesaplanıyor
+- **İşlem Girdileri ve Çıktıları**: Her işlem, harcanacak UTXO'ları (girdiler) ve oluşturulacak yeni UTXO'ları (çıktılar) içeriyor
+- **Para Üstü Mekanizması**: İşlemler sırasında göndericiye para üstü döndürülmesi sağlandı
+- **Genesis Bloğu İyileştirmesi**: Genesis bloğu madencilik işlemi sırasında oluşturularak ilk coinlerin doğru şekilde dağıtılması sağlandı
+
+### Wallet ve Adres Sistemi
+
 - **Cüzdan Eklemesi**: Her node için ECDSA tabanlı özel-genel anahtar çifti içeren cüzdan eklendi
 - **Gerçekçi Adres Formatı**: Bitcoin benzeri Base58 formatında adresler oluşturuldu
 - **Dijital İmzalar**: İşlemler artık gönderen tarafından imzalanıyor ve doğrulanıyor
@@ -160,4 +184,4 @@ cargo run
 
 ---
 
-Bu proje, blockchain teknolojisinin temel prensiplerini anlamak ve öğrenmek için geliştirilmiş eğitim amaçlı bir simülasyondur. 
+Bu proje, blockchain teknolojisinin temel prensiplerini anlamak ve öğrenmek için geliştirilmiş eğitim amaçlı bir simülasyondur.
