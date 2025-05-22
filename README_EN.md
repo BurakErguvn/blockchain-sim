@@ -157,21 +157,21 @@ cargo run
 
 ## Recent Updates
 
-### UTXO-Based Transaction System (Latest Update)
+### User Interface and Output Improvements (Latest Update)
+
+- **Command Interface**: Added a command interface allowing users to interact with the blockchain
+- **Block Information in Separate Terminal**: Block information is displayed in a separate terminal, improving user experience
+- **Removal of Unnecessary Messages**: Countdown and unnecessary notification messages were removed, making terminal output cleaner
+- **Correct Display of Miner Information**: Information about the block creator and newly selected miner is correctly displayed
+- **Exit Command Improvement**: Ensured proper termination of all threads when simulation is stopped
+
+### UTXO-Based Transaction System
 
 - **UTXO Model**: Added Unspent Transaction Outputs (UTXO) model for a realistic balance management system
 - **Balance Calculation**: Balances are now calculated as the sum of unspent transaction outputs
 - **Transaction Inputs and Outputs**: Each transaction includes UTXOs to be spent (inputs) and new UTXOs to be created (outputs)
 - **Change Mechanism**: Implemented returning change to the sender during transactions
 - **Genesis Block Improvement**: Genesis block is now created during the mining process, ensuring correct distribution of initial coins
-
-### Wallet and Address System
-
-- **Wallet Addition**: Added ECDSA-based private-public key pair wallet for each node
-- **Realistic Address Format**: Created Bitcoin-like addresses in Base58 format
-- **Digital Signatures**: Transactions are now signed by the sender and verified
-- **Realistic Transaction Format**: Transactions are now in "SourceAddress -> DestinationAddress" format
-- **Signature Verification Process**: Verification and security check of ECDSA signatures
 
 ### Modular Structure Improvements
 

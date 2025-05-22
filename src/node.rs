@@ -8,7 +8,7 @@ use crate::wallet::Wallet;
 use crate::transaction::{Transaction, UTXO, TxInput, TxOutput, get_utxo_id};
 
 //Node sınıfı
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node {
     pub id: usize,
     pub connections: Vec<usize>, // Bağlı nodeların id'leri
@@ -275,9 +275,6 @@ impl Node {
         
         // Cüzdanı güncelle
         self.wallet.update_utxos(&block.transactions);
-        
-        // Bakiyeyi göster
-        println!("Node {}: Güncel bakiye: {} coin", self.id, self.wallet.get_balance() as f64 / 100_000_000.0);
         
         true
     }

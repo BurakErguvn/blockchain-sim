@@ -158,21 +158,21 @@ cargo run
 
 ## Son Güncellemeler
 
-### UTXO Tabanlı İşlem Sistemi (En Son Güncelleme)
+### Kullanıcı Arayüzü ve Çıktı İyileştirmeleri (En Son Güncelleme)
+
+- **Komut Arayüzü**: Kullanıcının blockchain ile etkileşime geçebileceği komut arayüzü eklendi
+- **Blok Bilgilerinin Ayrı Terminalde Gösterilmesi**: Blok bilgileri ayrı bir terminalde görüntülenerek kullanıcı deneyimi iyileştirildi
+- **Gereksiz Mesajların Kaldırılması**: Geri sayım ve gereksiz bildirim mesajları kaldırılarak terminal çıktısı daha temiz hale getirildi
+- **Madenci Bilgilerinin Doğru Gösterilmesi**: Blok oluşturan madenci ve yeni seçilen madenci bilgileri doğru şekilde gösteriliyor
+- **Çıkış Komutu İyileştirmesi**: Simülasyonun tüm threadleri düzgün şekilde sonlandırması sağlandı
+
+### UTXO Tabanlı İşlem Sistemi
 
 - **UTXO Modeli**: Harcanmamış İşlem Çıktıları (UTXO) modeli eklenerek gerçekçi bir bakiye yönetim sistemi oluşturuldu
 - **Bakiye Hesaplama**: Bakiyeler artık harcanmamış işlem çıktılarının toplamı olarak hesaplanıyor
 - **İşlem Girdileri ve Çıktıları**: Her işlem, harcanacak UTXO'ları (girdiler) ve oluşturulacak yeni UTXO'ları (çıktılar) içeriyor
 - **Para Üstü Mekanizması**: İşlemler sırasında göndericiye para üstü döndürülmesi sağlandı
 - **Genesis Bloğu İyileştirmesi**: Genesis bloğu madencilik işlemi sırasında oluşturularak ilk coinlerin doğru şekilde dağıtılması sağlandı
-
-### Wallet ve Adres Sistemi
-
-- **Cüzdan Eklemesi**: Her node için ECDSA tabanlı özel-genel anahtar çifti içeren cüzdan eklendi
-- **Gerçekçi Adres Formatı**: Bitcoin benzeri Base58 formatında adresler oluşturuldu
-- **Dijital İmzalar**: İşlemler artık gönderen tarafından imzalanıyor ve doğrulanıyor
-- **Gerçekçi İşlem Formatı**: İşlemler artık "KaynakAdres -> HedefAdres" formatında
-- **İmza Doğrulama Süreci**: ECDSA imzalarının doğrulanması ve güvenlik kontrolü
 
 ### Modüler Yapı İyileştirmeleri
 
