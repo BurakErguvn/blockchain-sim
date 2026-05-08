@@ -1,5 +1,5 @@
-use hex;
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -15,10 +15,11 @@ pub struct UTXO {
 // Transaction Input yapısı
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TxInput {
-    pub utxo_id: String, // Harcanacak UTXO'nun ID'si (transaction_id + output_index)
-    pub utxo_output_index: usize, // UTXO'nun çıktı indeksi
-    pub signature: Vec<u8>, // Girdi için imza
-    pub sender_address: String, // Gönderen adresi
+    pub prev_tx_id: String,       // Harcanacak UTXO'nun ait olduğu işlem ID'si
+    pub prev_output_index: usize, // Harcanacak çıktının indeksi
+    pub signature: Vec<u8>,       // Girdi için imza
+    pub public_key: Vec<u8>,      // Harcayan cüzdanın public key'i (compressed)
+    pub sender_address: String,   // Gönderen adresi
 }
 
 // Transaction Output yapısı
@@ -92,11 +93,10 @@ impl Transaction {
 
         // Girdileri hash'e ekle
         for input in &self.inputs {
-            let input_data = format!(
-                "{}{}{}",
-                input.utxo_id, input.utxo_output_index, input.sender_address
-            );
-            hasher.update(input_data.as_bytes());
+            hasher.update(input.prev_tx_id.as_bytes());
+            hasher.update(input.prev_output_index.to_le_bytes());
+            hasher.update(&input.public_key);
+            hasher.update(input.sender_address.as_bytes());
         }
 
         // Çıktıları hash'e ekle
@@ -113,6 +113,30 @@ impl Transaction {
         format!("{:x}", result)
     }
 
+    // Her input için imzalanacak veriyi üret
+    pub fn signing_payload(&self, input_index: usize) -> Option<Vec<u8>> {
+        if input_index >= self.inputs.len() {
+            return None;
+        }
+
+        let mut hasher = Sha256::new();
+        hasher.update(self.id.as_bytes());
+        hasher.update((input_index as u64).to_le_bytes());
+
+        for input in &self.inputs {
+            hasher.update(input.prev_tx_id.as_bytes());
+            hasher.update(input.prev_output_index.to_le_bytes());
+            hasher.update(&input.public_key);
+        }
+
+        for output in &self.outputs {
+            hasher.update(output.amount.to_le_bytes());
+            hasher.update(output.recipient_address.as_bytes());
+        }
+
+        Some(hasher.finalize().to_vec())
+    }
+
     // İşlemin toplam girdi miktarını hesapla
     pub fn get_total_input_amount(&self, utxo_set: &[UTXO]) -> u64 {
         let mut total = 0;
@@ -120,8 +144,9 @@ impl Transaction {
         for input in &self.inputs {
             // UTXO setinde bu girdiyle eşleşen UTXO'yu bul
             for utxo in utxo_set {
-                let utxo_id = format!("{}{}", utxo.transaction_id, utxo.output_index);
-                if utxo_id == input.utxo_id && utxo.output_index == input.utxo_output_index {
+                if utxo.transaction_id == input.prev_tx_id
+                    && utxo.output_index == input.prev_output_index
+                {
                     total += utxo.amount;
                     break;
                 }
@@ -138,9 +163,29 @@ impl Transaction {
 
     // İşlemin geçerli olup olmadığını kontrol et
     pub fn is_valid(&self, utxo_set: &[UTXO]) -> bool {
+        if self.outputs.is_empty() {
+            return false;
+        }
+
+        if self.outputs.iter().any(|output| output.amount == 0) {
+            return false;
+        }
+
         // Coinbase işlemi her zaman geçerlidir
         if self.inputs.is_empty() && !self.outputs.is_empty() {
             return true;
+        }
+
+        if self.id != self.calculate_hash() {
+            return false;
+        }
+
+        let mut seen_outpoints = HashSet::new();
+        for input in &self.inputs {
+            let outpoint = (input.prev_tx_id.clone(), input.prev_output_index);
+            if !seen_outpoints.insert(outpoint) {
+                return false;
+            }
         }
 
         // Toplam girdi ve çıktı miktarlarını kontrol et
@@ -165,8 +210,8 @@ impl fmt::Display for Transaction {
         for (i, input) in self.inputs.iter().enumerate() {
             write!(
                 f,
-                "  [{}] UTXO: {}, Gönderen: {}\n",
-                i, input.utxo_id, input.sender_address
+                "  [{}] Outpoint: {}:{}, Gönderen: {}\n",
+                i, input.prev_tx_id, input.prev_output_index, input.sender_address
             )?;
         }
 

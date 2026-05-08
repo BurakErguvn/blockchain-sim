@@ -12,6 +12,7 @@ use crate::transaction::{Transaction, UTXO};
 pub struct BlockchainNetwork {
     pub nodes: Vec<Node>,
     pub mempool: Vec<Transaction>,
+    pub mempool_spent_outpoints: HashMap<String, String>,
     pub current_validator_id: Option<usize>,
     pub difficulty: usize,
     pub block_time: u64,      // Saniye cinsinden blok oluşturma süresi
@@ -32,6 +33,7 @@ impl BlockchainNetwork {
         BlockchainNetwork {
             nodes: Vec::new(),
             mempool: Vec::new(),
+            mempool_spent_outpoints: HashMap::new(),
             current_validator_id: None,
             difficulty: 2,        // Varsayılan zorluk seviyesi
             block_time: 10,       // Varsayılan olarak 10 saniye
@@ -163,36 +165,84 @@ impl BlockchainNetwork {
         recipient_address: &str,
         amount: u64,
     ) -> Option<Transaction> {
-        if let Some(sender_node) = self.nodes.get_mut(sender_id) {
-            // İşlemi oluştur
-            if let Some(tx) = sender_node.create_transaction(recipient_address, amount) {
-                // İşlemi ağ mempool'una ekle
-                self.mempool.push(tx.clone());
-
-                // İşlemi tüm node'lara yay
-                self.broadcast_transaction(&tx);
-
-                Some(tx)
-            } else {
-                None
-            }
-        } else {
+        if sender_id >= self.nodes.len() {
             None
+        } else {
+            let tx = {
+                let sender_node = self.nodes.get_mut(sender_id)?;
+                sender_node.create_transaction(recipient_address, amount)?
+            };
+
+            if self.has_mempool_conflict(&tx) {
+                if let Some(sender_node) = self.nodes.get_mut(sender_id) {
+                    sender_node
+                        .mempool
+                        .retain(|existing_tx| existing_tx.id != tx.id);
+                }
+                return None;
+            }
+
+            // İşlemi ağ mempool'una ekle
+            self.track_transaction_inputs(&tx);
+            self.mempool.push(tx.clone());
+
+            // İşlemi tüm node'lara yay
+            self.broadcast_transaction(&tx);
+
+            Some(tx)
+        }
+    }
+
+    fn outpoint_key(transaction_id: &str, output_index: usize) -> String {
+        format!("{}:{}", transaction_id, output_index)
+    }
+
+    fn has_mempool_conflict(&self, transaction: &Transaction) -> bool {
+        transaction.inputs.iter().any(|input| {
+            let outpoint_key = Self::outpoint_key(&input.prev_tx_id, input.prev_output_index);
+            self.mempool_spent_outpoints.contains_key(&outpoint_key)
+        })
+    }
+
+    fn track_transaction_inputs(&mut self, transaction: &Transaction) {
+        for input in &transaction.inputs {
+            let outpoint_key = Self::outpoint_key(&input.prev_tx_id, input.prev_output_index);
+            self.mempool_spent_outpoints
+                .insert(outpoint_key, transaction.id.clone());
+        }
+    }
+
+    fn rebuild_mempool_outpoint_index(&mut self) {
+        self.mempool_spent_outpoints.clear();
+        for tx in &self.mempool {
+            for input in &tx.inputs {
+                let outpoint_key = Self::outpoint_key(&input.prev_tx_id, input.prev_output_index);
+                self.mempool_spent_outpoints
+                    .insert(outpoint_key, tx.id.clone());
+            }
         }
     }
 
     // İşlemi tüm node'lara yay
     pub fn broadcast_transaction(&mut self, transaction: &Transaction) {
-        // Gönderici node'un adresini al
-        let sender_address = transaction.inputs[0].sender_address.clone();
+        // Gönderici node'un adresini al (coinbase işlemlerinde gönderici olmaz)
+        let sender_address = transaction
+            .inputs
+            .first()
+            .map(|input| input.sender_address.clone());
 
         for node in self.nodes.iter_mut() {
             // Eğer bu node işlemin göndericisi değilse işlemi doğrula ve mempool'a ekle
             // Gönderici node zaten işlemi kendi mempool'una eklemiş olacak
-            if node.wallet.get_address() != sender_address {
-                if node.verify_transaction(transaction) {
-                    node.mempool.push(transaction.clone());
-                }
+            if sender_address
+                .as_ref()
+                .is_some_and(|address| node.wallet.get_address() == address)
+            {
+                continue;
+            }
+
+            if node.verify_transaction(transaction) {
+                node.mempool.push(transaction.clone());
             }
         }
     }
@@ -289,6 +339,7 @@ impl BlockchainNetwork {
                 validator.blockchain.push(block.clone());
                 validator.update_utxo_set(block);
                 validator.wallet.update_utxos(&block.transactions);
+                self.rebuild_mempool_outpoint_index();
 
                 // Yeni bloğu tüm node'lara yay
                 self.broadcast_block(block);

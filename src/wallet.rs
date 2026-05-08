@@ -1,10 +1,9 @@
 use bs58;
-use hex;
 use rand::Rng;
-use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};
 
-use crate::transaction::{get_utxo_id, Transaction, TxInput, TxOutput, UTXO};
+use crate::transaction::{Transaction, TxInput, TxOutput, UTXO};
 
 #[derive(Clone, Debug)]
 pub struct Wallet {
@@ -45,6 +44,10 @@ impl Wallet {
 
     pub fn get_public_key(&self) -> &PublicKey {
         &self.public_key
+    }
+
+    pub fn get_public_key_bytes(&self) -> Vec<u8> {
+        self.public_key.serialize().to_vec()
     }
 
     fn generate_address(public_key: &PublicKey) -> String {
@@ -89,7 +92,7 @@ impl Wallet {
         let message_hash = hasher.finalize();
 
         // Hash'i bir message tipine dönüştür
-        let message = secp256k1::Message::from_digest_slice(&message_hash).expect("32 bytes");
+        let message = Message::from_digest_slice(&message_hash).expect("32 bytes");
 
         // İmzala
         let signature = secp.sign_ecdsa(&message, &self.private_key);
@@ -99,6 +102,10 @@ impl Wallet {
     }
 
     pub fn verify(&self, data: &[u8], signature: &[u8]) -> bool {
+        Self::verify_with_public_key(data, signature, &self.public_key)
+    }
+
+    pub fn verify_with_public_key(data: &[u8], signature: &[u8], public_key: &PublicKey) -> bool {
         let secp = Secp256k1::new();
 
         // İlk olarak verinin hash'ini al
@@ -107,13 +114,32 @@ impl Wallet {
         let message_hash = hasher.finalize();
 
         // Hash'i bir message tipine dönüştür
-        let message = secp256k1::Message::from_digest_slice(&message_hash).expect("32 bytes");
+        let message = Message::from_digest_slice(&message_hash).expect("32 bytes");
 
         // İmzayı doğrula
-        let signature = secp256k1::ecdsa::Signature::from_der(signature).expect("Geçerli imza");
+        let Ok(signature) = Signature::from_der(signature) else {
+            return false;
+        };
 
-        secp.verify_ecdsa(&message, &signature, &self.public_key)
-            .is_ok()
+        secp.verify_ecdsa(&message, &signature, public_key).is_ok()
+    }
+
+    pub fn verify_with_public_key_bytes(
+        data: &[u8],
+        signature: &[u8],
+        public_key_bytes: &[u8],
+    ) -> bool {
+        let Ok(public_key) = PublicKey::from_slice(public_key_bytes) else {
+            return false;
+        };
+        Self::verify_with_public_key(data, signature, &public_key)
+    }
+
+    pub fn public_key_bytes_to_address(public_key_bytes: &[u8]) -> Option<String> {
+        let Ok(public_key) = PublicKey::from_slice(public_key_bytes) else {
+            return None;
+        };
+        Some(Self::generate_address(&public_key))
     }
 
     // Cüzdana UTXO ekle
@@ -126,12 +152,10 @@ impl Wallet {
 
     // Cüzdandan UTXO çıkar (harcanmış olarak işaretle)
     pub fn remove_utxo(&mut self, tx_id: &str, output_index: usize) {
-        let utxo_id = get_utxo_id(tx_id, output_index);
-
         if let Some(index) = self
             .utxos
             .iter()
-            .position(|utxo| get_utxo_id(&utxo.transaction_id, utxo.output_index) == utxo_id)
+            .position(|utxo| utxo.transaction_id == tx_id && utxo.output_index == output_index)
         {
             let removed_utxo = self.utxos.remove(index);
             self.balance -= removed_utxo.amount;
@@ -166,17 +190,13 @@ impl Wallet {
 
         // Girdileri oluştur
         let mut inputs = Vec::new();
+        let public_key_bytes = self.get_public_key_bytes();
         for utxo in &selected_utxos {
-            let utxo_id = get_utxo_id(&utxo.transaction_id, utxo.output_index);
-
-            // İmza oluştur (gerçek bir sistemde, tüm işlem verisi imzalanır)
-            let signature_data = format!("{}{}{}", utxo_id, utxo.output_index, amount);
-            let signature = self.sign(signature_data.as_bytes());
-
             inputs.push(TxInput {
-                utxo_id,
-                utxo_output_index: utxo.output_index,
-                signature,
+                prev_tx_id: utxo.transaction_id.clone(),
+                prev_output_index: utxo.output_index,
+                signature: Vec::new(),
+                public_key: public_key_bytes.clone(),
                 sender_address: self.address.clone(),
             });
         }
@@ -200,7 +220,13 @@ impl Wallet {
         }
 
         // İşlemi oluştur
-        Some(Transaction::new(inputs, outputs))
+        let mut transaction = Transaction::new(inputs, outputs);
+        for i in 0..transaction.inputs.len() {
+            let signature_payload = transaction.signing_payload(i)?;
+            transaction.inputs[i].signature = self.sign(&signature_payload);
+        }
+
+        Some(transaction)
     }
 
     // Cüzdanın UTXO'larını güncelle (yeni bloklar geldiğinde)
@@ -209,21 +235,16 @@ impl Wallet {
             // Bu cüzdana ait harcanan UTXO'ları çıkar
             for input in &tx.inputs {
                 if input.sender_address == self.address {
-                    // UTXO ID'sinden transaction_id'yi çıkar
-                    // Örnek: utxo_id = "abc123def0" -> tx_id = "abc123def", output_index = 0
-                    let last_char = input.utxo_id.chars().last().unwrap_or('0');
-                    let output_index = last_char.to_digit(10).unwrap_or(0) as usize;
-                    let tx_id = &input.utxo_id[0..input.utxo_id.len() - 1];
-
                     // UTXO'nun hala cüzdanda olup olmadığını kontrol et
                     // Eğer zaten harcanmışsa (işlem oluşturulduğunda çıkarılmışsa) tekrar çıkarma
                     let utxo_exists = self.utxos.iter().any(|utxo| {
-                        utxo.transaction_id == *tx_id && utxo.output_index == output_index
+                        utxo.transaction_id == input.prev_tx_id
+                            && utxo.output_index == input.prev_output_index
                     });
 
                     if utxo_exists {
                         // UTXO hala cüzdanda, çıkar
-                        self.remove_utxo(tx_id, output_index);
+                        self.remove_utxo(&input.prev_tx_id, input.prev_output_index);
                     }
                 }
             }
