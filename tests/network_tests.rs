@@ -144,3 +144,114 @@ fn asiri_coinbase_odulu_olan_blok_reddedilmeli() {
 
     assert!(!node.is_valid_new_block(&fake_block, network.difficulty));
 }
+
+#[test]
+fn chain_sync_sirasinda_wallet_kimligi_ve_bakiye_korunmali() {
+    let mut network = setup_network(3);
+    mine_genesis(&mut network);
+
+    let target_id =
+        find_funded_node(&network).expect("Genesis sonrasi en az bir node fonlanmis olmali");
+    let original_address = network.nodes[target_id].wallet.get_address().to_string();
+    let original_balance = network.nodes[target_id].wallet.get_balance();
+
+    let base_chain = network.nodes[target_id].blockchain.clone();
+    let last_block = base_chain.last().expect("zincirde genesis olmali");
+    let reward = network.nodes[target_id].mining_reward;
+    let coinbase = Transaction::new_coinbase("external-miner".to_string(), reward);
+
+    let mut new_block = Block::new(
+        last_block.index + 1,
+        last_block.timestamp + 1,
+        vec![coinbase],
+        last_block.hash.clone(),
+    );
+    new_block.mine_block(network.difficulty);
+
+    let mut longer_chain = base_chain;
+    longer_chain.push(new_block);
+
+    network.nodes[target_id].update_blockchain(longer_chain, network.difficulty);
+    let synced_node = &network.nodes[target_id];
+
+    assert_eq!(synced_node.wallet.get_address(), original_address);
+    assert_eq!(synced_node.wallet.get_balance(), original_balance);
+
+    let expected_balance: u64 = synced_node
+        .utxo_set
+        .values()
+        .filter(|utxo| utxo.recipient_address == original_address)
+        .map(|utxo| utxo.amount)
+        .sum();
+    assert_eq!(synced_node.wallet.get_balance(), expected_balance);
+}
+
+#[test]
+fn chain_sync_sonrasi_mempooldaki_harcanmis_tx_temizlenmeli() {
+    let mut network = setup_network(3);
+    mine_genesis(&mut network);
+
+    let sender_id =
+        find_funded_node(&network).expect("Genesis sonrasi en az bir node fonlanmis olmali");
+    let recipient_id = if sender_id == 0 { 1 } else { 0 };
+    let recipient_address = network.get_node_address(recipient_id);
+
+    let pending_tx = network.nodes[sender_id]
+        .create_transaction(&recipient_address, 100_000_000)
+        .expect("gonderici mempoola tx ekleyebilmeli");
+    assert_eq!(network.nodes[sender_id].mempool.len(), 1);
+
+    let base_chain = network.nodes[sender_id].blockchain.clone();
+    let last_block = base_chain.last().expect("zincirde genesis olmali");
+    let reward = network.nodes[sender_id].mining_reward;
+    let coinbase = Transaction::new_coinbase("sync-miner".to_string(), reward);
+
+    let mut sync_block = Block::new(
+        last_block.index + 1,
+        last_block.timestamp + 1,
+        vec![coinbase, pending_tx],
+        last_block.hash.clone(),
+    );
+    sync_block.mine_block(network.difficulty);
+
+    let mut longer_chain = base_chain;
+    longer_chain.push(sync_block);
+    network.nodes[sender_id].update_blockchain(longer_chain, network.difficulty);
+
+    assert!(network.nodes[sender_id].mempool.is_empty());
+}
+
+#[test]
+fn broadcast_blockchain_sonrasi_ag_mempoolu_da_temizlenmeli() {
+    let mut network = setup_network(3);
+    mine_genesis(&mut network);
+
+    let sender_id =
+        find_funded_node(&network).expect("Genesis sonrasi en az bir node fonlanmis olmali");
+    let recipient_id = if sender_id == 0 { 1 } else { 0 };
+    let recipient_address = network.get_node_address(recipient_id);
+
+    let pending_tx = network
+        .create_transaction(sender_id, &recipient_address, 100_000_000)
+        .expect("ag mempooluna tx eklenmeli");
+    assert_eq!(network.mempool.len(), 1);
+
+    let base_chain = network.nodes[sender_id].blockchain.clone();
+    let last_block = base_chain.last().expect("zincirde genesis olmali");
+    let reward = network.nodes[sender_id].mining_reward;
+    let coinbase = Transaction::new_coinbase("sync-miner".to_string(), reward);
+
+    let mut sync_block = Block::new(
+        last_block.index + 1,
+        last_block.timestamp + 1,
+        vec![coinbase, pending_tx],
+        last_block.hash.clone(),
+    );
+    sync_block.mine_block(network.difficulty);
+
+    let mut longer_chain = base_chain;
+    longer_chain.push(sync_block);
+    network.broadcast_blockchain(longer_chain);
+
+    assert!(network.mempool.is_empty());
+}

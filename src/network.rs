@@ -217,6 +217,18 @@ impl BlockchainNetwork {
         }
     }
 
+    fn reconcile_network_mempool_after_chain_sync(&mut self) {
+        let Some(reference_node) = self.nodes.first() else {
+            self.mempool.clear();
+            self.rebuild_mempool_outpoint_index();
+            return;
+        };
+
+        self.mempool
+            .retain(|tx| !tx.is_coinbase() && reference_node.verify_transaction(tx));
+        self.rebuild_mempool_outpoint_index();
+    }
+
     // İşlemi tüm node'lara yay
     pub fn broadcast_transaction(&mut self, transaction: &Transaction) {
         // Gönderici node'un adresini al (coinbase işlemlerinde gönderici olmaz)
@@ -387,6 +399,8 @@ impl BlockchainNetwork {
                 node.update_blockchain(blockchain.clone(), self.difficulty);
             }
         }
+
+        self.reconcile_network_mempool_after_chain_sync();
     }
 
     // Bir node'un hash'ini manipüle etmeyi dene

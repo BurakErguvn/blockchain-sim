@@ -188,6 +188,24 @@ impl Node {
         }
     }
 
+    fn reconcile_mempool_with_utxo_set(&mut self) {
+        let mut working_utxo_set = self.utxo_set.clone();
+        let mut reconciled = Vec::new();
+
+        for tx in &self.mempool {
+            if tx.is_coinbase() {
+                continue;
+            }
+
+            if self.verify_transaction_with_utxo_set(tx, &working_utxo_set) {
+                reconciled.push(tx.clone());
+                Self::apply_transaction_to_utxo_set(tx, &mut working_utxo_set);
+            }
+        }
+
+        self.mempool = reconciled;
+    }
+
     // Mempool'dan işlemleri al ve yeni bir blok oluştur
     pub fn create_block(&mut self, difficulty: usize) -> Option<Block> {
         if !self.is_validator {
@@ -416,25 +434,17 @@ impl Node {
         if blockchain.len() > self.blockchain.len() {
             // Daha uzun bir blockchain alındı
 
-            // Mevcut UTXO setini temizle
-            self.utxo_set.clear();
-
             // Yeni blockchain'i ayarla
             self.blockchain = blockchain.clone();
 
             // UTXO setini yeniden oluştur
             self.rebuild_utxo_set();
 
-            // Cüzdanı güncelle
-            let all_transactions: Vec<Transaction> = self
-                .blockchain
-                .iter()
-                .flat_map(|block| block.transactions.clone())
-                .collect();
+            // Cüzdan kimliğini koruyarak state'i güncelle
+            self.wallet.rebuild_from_utxo_set(&self.utxo_set);
 
-            // Cüzdanı sıfırla ve tüm işlemleri yeniden işle
-            self.wallet = Wallet::new();
-            self.wallet.update_utxos(&all_transactions);
+            // Yeni zincire göre mempool'u temizle
+            self.reconcile_mempool_with_utxo_set();
         }
     }
 

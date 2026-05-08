@@ -163,6 +163,20 @@ impl Wallet {
         self.balance
     }
 
+    // Cüzdanın durumunu (UTXO + bakiye) global UTXO setten yeniden kur
+    // Private/public key ve adres korunur.
+    pub fn rebuild_from_utxo_set(&mut self, global_utxo_set: &HashMap<OutPoint, UTXO>) {
+        self.utxos.clear();
+        self.balance = 0;
+
+        for (outpoint, utxo) in global_utxo_set {
+            if utxo.recipient_address == self.address {
+                self.utxos.insert(outpoint.clone(), utxo.clone());
+                self.balance = self.balance.saturating_add(utxo.amount);
+            }
+        }
+    }
+
     // Yeni bir işlem oluştur
     pub fn create_transaction(&self, recipient_address: &str, amount: u64) -> Option<Transaction> {
         // Bakiye kontrolü
