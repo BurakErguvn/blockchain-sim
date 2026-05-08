@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // Gerekli modülleri kullan
 use crate::block::Block;
-use crate::transaction::{Transaction, UTXO};
+use crate::transaction::{OutPoint, Transaction, UTXO};
 use crate::wallet::Wallet;
 
 //Node sınıfı
@@ -12,11 +13,11 @@ pub struct Node {
     pub id: usize,
     pub connections: Vec<usize>, // Bağlı nodeların id'leri
     pub is_validator: bool,
-    pub blockchain: Vec<Block>,    // Blok zinciri
-    pub wallet: Wallet,            // Cüzdan
-    pub mempool: Vec<Transaction>, // Henüz bloklara eklenmemiş işlemler
-    pub utxo_set: Vec<UTXO>,       // Tüm harcanmamış çıktılar (UTXO seti)
-    pub mining_reward: u64,        // Madencilik ödülü
+    pub blockchain: Vec<Block>,            // Blok zinciri
+    pub wallet: Wallet,                    // Cüzdan
+    pub mempool: Vec<Transaction>,         // Henüz bloklara eklenmemiş işlemler
+    pub utxo_set: HashMap<OutPoint, UTXO>, // Tüm harcanmamış çıktılar (UTXO seti)
+    pub mining_reward: u64,                // Madencilik ödülü
 }
 
 impl fmt::Display for Node {
@@ -38,7 +39,7 @@ impl Node {
     pub fn new(id: usize, genesis_block: Option<Block>) -> Self {
         let wallet = Wallet::new(); // Yeni bir cüzdan oluştur
         let mut blockchain = Vec::new();
-        let mut utxo_set = Vec::new();
+        let mut utxo_set = HashMap::new();
         let mut wallet_clone = wallet.clone();
 
         // Genesis bloğu dışarıdan verilmişse onu kullan
@@ -52,12 +53,14 @@ impl Node {
                 // Eğer bu node'un adresi ile coinbase işleminin alıcı adresi aynıysa UTXO'yu ekle
                 if coinbase_tx.outputs[0].recipient_address == wallet.get_address() {
                     let genesis_utxo = UTXO {
-                        transaction_id: coinbase_tx.id.clone(),
-                        output_index: 0,
+                        outpoint: OutPoint {
+                            txid: coinbase_tx.id.clone(),
+                            vout: 0,
+                        },
                         amount: coinbase_tx.outputs[0].amount,
                         recipient_address: coinbase_tx.outputs[0].recipient_address.clone(),
                     };
-                    utxo_set.push(genesis_utxo.clone());
+                    utxo_set.insert(genesis_utxo.outpoint.clone(), genesis_utxo.clone());
                     wallet_clone.add_utxo(genesis_utxo);
                 }
             }
@@ -118,7 +121,7 @@ impl Node {
     fn verify_transaction_with_utxo_set(
         &self,
         transaction: &Transaction,
-        utxo_set: &[UTXO],
+        utxo_set: &HashMap<OutPoint, UTXO>,
     ) -> bool {
         // Coinbase işlemleri her zaman geçerlidir
         if transaction.inputs.is_empty() && !transaction.outputs.is_empty() {
@@ -133,10 +136,7 @@ impl Node {
 
         // Her girdi için UTXO sahiplik ve imza kontrolü
         for (index, input) in transaction.inputs.iter().enumerate() {
-            let Some(utxo) = utxo_set.iter().find(|utxo| {
-                utxo.transaction_id == input.prev_tx_id
-                    && utxo.output_index == input.prev_output_index
-            }) else {
+            let Some(utxo) = utxo_set.get(&input.previous_output) else {
                 return false;
             };
 
@@ -164,23 +164,27 @@ impl Node {
         true
     }
 
-    fn apply_transaction_to_utxo_set(transaction: &Transaction, utxo_set: &mut Vec<UTXO>) {
+    fn apply_transaction_to_utxo_set(
+        transaction: &Transaction,
+        utxo_set: &mut HashMap<OutPoint, UTXO>,
+    ) {
         for input in &transaction.inputs {
-            if let Some(index) = utxo_set.iter().position(|utxo| {
-                utxo.transaction_id == input.prev_tx_id
-                    && utxo.output_index == input.prev_output_index
-            }) {
-                utxo_set.remove(index);
-            }
+            utxo_set.remove(&input.previous_output);
         }
 
         for (i, output) in transaction.outputs.iter().enumerate() {
-            utxo_set.push(UTXO {
-                transaction_id: transaction.id.clone(),
-                output_index: i,
-                amount: output.amount,
-                recipient_address: output.recipient_address.clone(),
-            });
+            let outpoint = OutPoint {
+                txid: transaction.id.clone(),
+                vout: i,
+            };
+            utxo_set.insert(
+                outpoint.clone(),
+                UTXO {
+                    outpoint,
+                    amount: output.amount,
+                    recipient_address: output.recipient_address.clone(),
+                },
+            );
         }
     }
 
@@ -192,29 +196,33 @@ impl Node {
         }
 
         // Mempool'dan en fazla 10 işlem al
-        let mut block_transactions = Vec::new();
-        let transaction_limit = 10;
-
-        // Önce coinbase işlemini ekle (madencilik ödülü)
-        let coinbase_tx =
-            Transaction::new_coinbase(self.wallet.get_address().to_string(), self.mining_reward);
-        block_transactions.push(coinbase_tx);
+        let mut selected_transactions = Vec::new();
+        let transaction_limit: usize = 10;
+        let mut total_fees = 0_u64;
 
         // Mempool'dan geçerli işlemleri seç
         let mut selected_tx_indices = Vec::new();
         let mut working_utxo_set = self.utxo_set.clone();
 
         for (i, tx) in self.mempool.iter().enumerate() {
-            if block_transactions.len() >= transaction_limit {
+            if selected_transactions.len() >= transaction_limit.saturating_sub(1) {
                 break;
             }
 
             if self.verify_transaction_with_utxo_set(tx, &working_utxo_set) {
-                block_transactions.push(tx.clone());
+                let tx_fee = tx.calculate_fee(&working_utxo_set)?;
+                total_fees = total_fees.checked_add(tx_fee)?;
+                selected_transactions.push(tx.clone());
                 selected_tx_indices.push(i);
                 Self::apply_transaction_to_utxo_set(tx, &mut working_utxo_set);
             }
         }
+
+        let coinbase_amount = self.mining_reward.checked_add(total_fees)?;
+        let coinbase_tx =
+            Transaction::new_coinbase(self.wallet.get_address().to_string(), coinbase_amount);
+        let mut block_transactions = vec![coinbase_tx];
+        block_transactions.extend(selected_transactions);
 
         // Seçilen işlemleri mempool'dan çıkar (büyükten küçüğe doğru silmek için)
         selected_tx_indices.sort_by(|a, b| b.cmp(a));
@@ -348,20 +356,40 @@ impl Node {
 
             // Tüm işlemleri doğrula
             let mut block_utxo_view = self.utxo_set.clone();
+            let mut total_fees = 0_u64;
             for (i, tx) in block.transactions.iter().enumerate() {
                 // İlk işlem coinbase olmalı
                 if i == 0 {
-                    if !tx.inputs.is_empty() || tx.outputs.is_empty() {
+                    if !tx.is_coinbase() {
                         // Geçersiz coinbase işlemi
                         return false;
                     }
                     Self::apply_transaction_to_utxo_set(tx, &mut block_utxo_view);
-                } else if !self.verify_transaction_with_utxo_set(tx, &block_utxo_view) {
-                    // Geçersiz işlem
-                    return false;
                 } else {
+                    if tx.is_coinbase() {
+                        // Blok içinde tek coinbase olmalı
+                        return false;
+                    }
+                    if !self.verify_transaction_with_utxo_set(tx, &block_utxo_view) {
+                        // Geçersiz işlem
+                        return false;
+                    }
+                    let Some(tx_fee) = tx.calculate_fee(&block_utxo_view) else {
+                        return false;
+                    };
+                    total_fees = match total_fees.checked_add(tx_fee) {
+                        Some(value) => value,
+                        None => return false,
+                    };
                     Self::apply_transaction_to_utxo_set(tx, &mut block_utxo_view);
                 }
+            }
+
+            let Some(max_reward) = self.mining_reward.checked_add(total_fees) else {
+                return false;
+            };
+            if block.transactions[0].get_total_output_amount() > max_reward {
+                return false;
             }
 
             true

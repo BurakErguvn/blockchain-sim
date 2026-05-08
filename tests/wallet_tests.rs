@@ -1,4 +1,4 @@
-use blockchain_sim::transaction::UTXO;
+use blockchain_sim::transaction::{OutPoint, UTXO};
 use blockchain_sim::wallet::Wallet;
 
 #[test]
@@ -15,8 +15,10 @@ fn yeterli_bakiyede_para_ustu_cikisi_olusmali() {
     let owner_address = wallet.get_address().to_string();
 
     wallet.add_utxo(UTXO {
-        transaction_id: "genesis-tx".to_string(),
-        output_index: 0,
+        outpoint: OutPoint {
+            txid: "genesis-tx".to_string(),
+            vout: 0,
+        },
         amount: 5_000,
         recipient_address: owner_address,
     });
