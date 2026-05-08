@@ -334,12 +334,12 @@ impl BlockchainNetwork {
                         .iter()
                         .any(|block_tx| block_tx.id == tx.id)
                 });
-                self.rebuild_mempool_outpoint_index();
 
                 // Validator'un blockchain'ine bloğu ekle
                 validator.blockchain.push(block.clone());
                 validator.update_utxo_set(block);
                 validator.wallet.update_utxos(&block.transactions);
+                self.rebuild_mempool_outpoint_index();
 
                 // Yeni bloğu tüm node'lara yay
                 self.broadcast_block(block);
