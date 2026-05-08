@@ -192,29 +192,33 @@ impl Node {
         }
 
         // Mempool'dan en fazla 10 işlem al
-        let mut block_transactions = Vec::new();
+        let mut selected_transactions = Vec::new();
         let transaction_limit = 10;
-
-        // Önce coinbase işlemini ekle (madencilik ödülü)
-        let coinbase_tx =
-            Transaction::new_coinbase(self.wallet.get_address().to_string(), self.mining_reward);
-        block_transactions.push(coinbase_tx);
+        let mut total_fees = 0_u64;
 
         // Mempool'dan geçerli işlemleri seç
         let mut selected_tx_indices = Vec::new();
         let mut working_utxo_set = self.utxo_set.clone();
 
         for (i, tx) in self.mempool.iter().enumerate() {
-            if block_transactions.len() >= transaction_limit {
+            if selected_transactions.len() >= transaction_limit.saturating_sub(1) {
                 break;
             }
 
             if self.verify_transaction_with_utxo_set(tx, &working_utxo_set) {
-                block_transactions.push(tx.clone());
+                let tx_fee = tx.calculate_fee(&working_utxo_set)?;
+                total_fees = total_fees.checked_add(tx_fee)?;
+                selected_transactions.push(tx.clone());
                 selected_tx_indices.push(i);
                 Self::apply_transaction_to_utxo_set(tx, &mut working_utxo_set);
             }
         }
+
+        let coinbase_amount = self.mining_reward.checked_add(total_fees)?;
+        let coinbase_tx =
+            Transaction::new_coinbase(self.wallet.get_address().to_string(), coinbase_amount);
+        let mut block_transactions = vec![coinbase_tx];
+        block_transactions.extend(selected_transactions);
 
         // Seçilen işlemleri mempool'dan çıkar (büyükten küçüğe doğru silmek için)
         selected_tx_indices.sort_by(|a, b| b.cmp(a));
@@ -348,20 +352,40 @@ impl Node {
 
             // Tüm işlemleri doğrula
             let mut block_utxo_view = self.utxo_set.clone();
+            let mut total_fees = 0_u64;
             for (i, tx) in block.transactions.iter().enumerate() {
                 // İlk işlem coinbase olmalı
                 if i == 0 {
-                    if !tx.inputs.is_empty() || tx.outputs.is_empty() {
+                    if !tx.is_coinbase() {
                         // Geçersiz coinbase işlemi
                         return false;
                     }
                     Self::apply_transaction_to_utxo_set(tx, &mut block_utxo_view);
-                } else if !self.verify_transaction_with_utxo_set(tx, &block_utxo_view) {
-                    // Geçersiz işlem
-                    return false;
                 } else {
+                    if tx.is_coinbase() {
+                        // Blok içinde tek coinbase olmalı
+                        return false;
+                    }
+                    if !self.verify_transaction_with_utxo_set(tx, &block_utxo_view) {
+                        // Geçersiz işlem
+                        return false;
+                    }
+                    let Some(tx_fee) = tx.calculate_fee(&block_utxo_view) else {
+                        return false;
+                    };
+                    total_fees = match total_fees.checked_add(tx_fee) {
+                        Some(value) => value,
+                        None => return false,
+                    };
                     Self::apply_transaction_to_utxo_set(tx, &mut block_utxo_view);
                 }
+            }
+
+            let Some(max_reward) = self.mining_reward.checked_add(total_fees) else {
+                return false;
+            };
+            if block.transactions[0].get_total_output_amount() > max_reward {
+                return false;
             }
 
             true

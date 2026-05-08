@@ -1,5 +1,8 @@
 mod common;
 
+use blockchain_sim::block::Block;
+use blockchain_sim::transaction::Transaction;
+
 use common::{find_funded_node, mine_genesis, setup_network};
 
 #[test]
@@ -83,4 +86,61 @@ fn mempool_double_spend_girisimi_reddedilmeli() {
     assert!(first_tx.is_some());
     assert!(second_tx.is_none());
     assert_eq!(network.mempool.len(), 1);
+}
+
+#[test]
+fn madenci_odulu_ucret_eklenince_artmali() {
+    let mut network = setup_network(3);
+    mine_genesis(&mut network);
+
+    let sender_id =
+        find_funded_node(&network).expect("Genesis sonrasi en az bir node fonlanmis olmali");
+    let recipient_id = if sender_id == 0 { 1 } else { 0 };
+    let recipient_address = network.get_node_address(recipient_id);
+
+    let mut fee_tx = network.nodes[sender_id]
+        .wallet
+        .create_transaction(&recipient_address, 100_000_000)
+        .expect("islem olusmali");
+    fee_tx.outputs[1].amount -= 1_000;
+    fee_tx.id = fee_tx.calculate_hash();
+    for i in 0..fee_tx.inputs.len() {
+        let payload = fee_tx.signing_payload(i).expect("imza payload olusmali");
+        fee_tx.inputs[i].signature = network.nodes[sender_id].wallet.sign(&payload);
+    }
+    assert!(network.nodes[sender_id].verify_transaction(&fee_tx));
+
+    network.mempool.push(fee_tx);
+    for node in network.nodes.iter_mut() {
+        node.is_validator = false;
+    }
+    network.nodes[0].is_validator = true;
+    network.current_validator_id = Some(0);
+
+    let mined_block = network.mine_block().expect("blok uretilmeli");
+    let coinbase_reward = mined_block.transactions[0].get_total_output_amount();
+    assert_eq!(coinbase_reward, network.nodes[0].mining_reward + 1_000);
+}
+
+#[test]
+fn asiri_coinbase_odulu_olan_blok_reddedilmeli() {
+    let mut network = setup_network(3);
+    mine_genesis(&mut network);
+
+    let node = &network.nodes[0];
+    let last_block = node.blockchain.last().expect("genesis olmali");
+    let fake_coinbase = Transaction::new_coinbase(
+        node.wallet.get_address().to_string(),
+        node.mining_reward + 1,
+    );
+
+    let mut fake_block = Block::new(
+        last_block.index + 1,
+        last_block.timestamp + 1,
+        vec![fake_coinbase],
+        last_block.hash.clone(),
+    );
+    fake_block.mine_block(network.difficulty);
+
+    assert!(!node.is_valid_new_block(&fake_block, network.difficulty));
 }

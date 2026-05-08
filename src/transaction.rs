@@ -113,6 +113,10 @@ impl Transaction {
         format!("{:x}", result)
     }
 
+    pub fn is_coinbase(&self) -> bool {
+        self.inputs.is_empty() && !self.outputs.is_empty()
+    }
+
     // Her input için imzalanacak veriyi üret
     pub fn signing_payload(&self, input_index: usize) -> Option<Vec<u8>> {
         if input_index >= self.inputs.len() {
@@ -161,6 +165,17 @@ impl Transaction {
         self.outputs.iter().map(|output| output.amount).sum()
     }
 
+    // İşlem ücretini hesapla (input - output)
+    pub fn calculate_fee(&self, utxo_set: &[UTXO]) -> Option<u64> {
+        if self.is_coinbase() {
+            return None;
+        }
+
+        let total_input = self.get_total_input_amount(utxo_set);
+        let total_output = self.get_total_output_amount();
+        total_input.checked_sub(total_output)
+    }
+
     // İşlemin geçerli olup olmadığını kontrol et
     pub fn is_valid(&self, utxo_set: &[UTXO]) -> bool {
         if self.outputs.is_empty() {
@@ -172,7 +187,7 @@ impl Transaction {
         }
 
         // Coinbase işlemi her zaman geçerlidir
-        if self.inputs.is_empty() && !self.outputs.is_empty() {
+        if self.is_coinbase() {
             return true;
         }
 
