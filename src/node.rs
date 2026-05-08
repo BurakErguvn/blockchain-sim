@@ -1,10 +1,9 @@
-use rand::Rng;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // Gerekli modülleri kullan
 use crate::block::Block;
-use crate::transaction::{get_utxo_id, Transaction, TxInput, TxOutput, UTXO};
+use crate::transaction::{Transaction, UTXO};
 use crate::wallet::Wallet;
 
 //Node sınıfı
@@ -113,37 +112,76 @@ impl Node {
 
     // İşlemi doğrula
     pub fn verify_transaction(&self, transaction: &Transaction) -> bool {
+        self.verify_transaction_with_utxo_set(transaction, &self.utxo_set)
+    }
+
+    fn verify_transaction_with_utxo_set(
+        &self,
+        transaction: &Transaction,
+        utxo_set: &[UTXO],
+    ) -> bool {
         // Coinbase işlemleri her zaman geçerlidir
         if transaction.inputs.is_empty() && !transaction.outputs.is_empty() {
             return true;
         }
 
         // İşlemin geçerli olup olmadığını kontrol et
-        if !transaction.is_valid(&self.utxo_set) {
+        if !transaction.is_valid(utxo_set) {
             // İşlem geçersiz - UTXO doğrulaması başarısız
             return false;
         }
 
-        // Bu aşamada işlem geçerli kabul edilir
-        // Gerçek bir sistemde imza doğrulaması yapılır, ancak bu simülasyonda basitleştiriyoruz
-        // Çünkü her node kendi cüzdanını kullanıyor ve diğer node'ların public key'lerine erişimimiz yok
+        // Her girdi için UTXO sahiplik ve imza kontrolü
+        for (index, input) in transaction.inputs.iter().enumerate() {
+            let Some(utxo) = utxo_set.iter().find(|utxo| {
+                utxo.transaction_id == input.prev_tx_id
+                    && utxo.output_index == input.prev_output_index
+            }) else {
+                return false;
+            };
 
-        // Her girdi için UTXO'nun var olduğunu kontrol et
-        for input in &transaction.inputs {
-            // UTXO'yu bul
-            let utxo = self.utxo_set.iter().find(|utxo| {
-                let utxo_id = get_utxo_id(&utxo.transaction_id, utxo.output_index);
-                utxo_id == input.utxo_id
-            });
+            let Some(derived_address) = Wallet::public_key_bytes_to_address(&input.public_key)
+            else {
+                return false;
+            };
+            if derived_address != utxo.recipient_address {
+                return false;
+            }
 
-            if utxo.is_none() {
-                // İşlem geçersiz - UTXO bulunamadı
+            let Some(signature_payload) = transaction.signing_payload(index) else {
+                return false;
+            };
+            if !Wallet::verify_with_public_key_bytes(
+                &signature_payload,
+                &input.signature,
+                &input.public_key,
+            ) {
                 return false;
             }
         }
 
         // Tüm kontroller geçildi, işlem geçerli
         true
+    }
+
+    fn apply_transaction_to_utxo_set(transaction: &Transaction, utxo_set: &mut Vec<UTXO>) {
+        for input in &transaction.inputs {
+            if let Some(index) = utxo_set.iter().position(|utxo| {
+                utxo.transaction_id == input.prev_tx_id
+                    && utxo.output_index == input.prev_output_index
+            }) {
+                utxo_set.remove(index);
+            }
+        }
+
+        for (i, output) in transaction.outputs.iter().enumerate() {
+            utxo_set.push(UTXO {
+                transaction_id: transaction.id.clone(),
+                output_index: i,
+                amount: output.amount,
+                recipient_address: output.recipient_address.clone(),
+            });
+        }
     }
 
     // Mempool'dan işlemleri al ve yeni bir blok oluştur
@@ -164,15 +202,17 @@ impl Node {
 
         // Mempool'dan geçerli işlemleri seç
         let mut selected_tx_indices = Vec::new();
+        let mut working_utxo_set = self.utxo_set.clone();
 
         for (i, tx) in self.mempool.iter().enumerate() {
             if block_transactions.len() >= transaction_limit {
                 break;
             }
 
-            if self.verify_transaction(tx) {
+            if self.verify_transaction_with_utxo_set(tx, &working_utxo_set) {
                 block_transactions.push(tx.clone());
                 selected_tx_indices.push(i);
+                Self::apply_transaction_to_utxo_set(tx, &mut working_utxo_set);
             }
         }
 
@@ -228,31 +268,7 @@ impl Node {
         // UTXO seti güncelleniyor
 
         for tx in &block.transactions {
-            // Harcanan UTXO'ları çıkar
-            for input in &tx.inputs {
-                if let Some(index) = self.utxo_set.iter().position(|utxo| {
-                    let utxo_id = get_utxo_id(&utxo.transaction_id, utxo.output_index);
-                    utxo_id == input.utxo_id
-                }) {
-                    let removed_utxo = &self.utxo_set[index];
-                    // UTXO harcanıyor
-                    self.utxo_set.remove(index);
-                }
-            }
-
-            // Yeni UTXO'ları ekle
-            for (i, output) in tx.outputs.iter().enumerate() {
-                let utxo = UTXO {
-                    transaction_id: tx.id.clone(),
-                    output_index: i,
-                    amount: output.amount,
-                    recipient_address: output.recipient_address.clone(),
-                };
-
-                // Yeni UTXO ekleniyor
-
-                self.utxo_set.push(utxo);
-            }
+            Self::apply_transaction_to_utxo_set(tx, &mut self.utxo_set);
         }
 
         // UTXO seti güncellendi
@@ -331,16 +347,20 @@ impl Node {
             }
 
             // Tüm işlemleri doğrula
+            let mut block_utxo_view = self.utxo_set.clone();
             for (i, tx) in block.transactions.iter().enumerate() {
                 // İlk işlem coinbase olmalı
                 if i == 0 {
-                    if !tx.inputs.is_empty() {
+                    if !tx.inputs.is_empty() || tx.outputs.is_empty() {
                         // Geçersiz coinbase işlemi
                         return false;
                     }
-                } else if !self.verify_transaction(tx) {
+                    Self::apply_transaction_to_utxo_set(tx, &mut block_utxo_view);
+                } else if !self.verify_transaction_with_utxo_set(tx, &block_utxo_view) {
                     // Geçersiz işlem
                     return false;
+                } else {
+                    Self::apply_transaction_to_utxo_set(tx, &mut block_utxo_view);
                 }
             }
 
@@ -398,25 +418,7 @@ impl Node {
         for block in &self.blockchain {
             for tx in &block.transactions {
                 // Harcanan UTXO'ları çıkar
-                for input in &tx.inputs {
-                    if let Some(index) = self.utxo_set.iter().position(|utxo| {
-                        let utxo_id = get_utxo_id(&utxo.transaction_id, utxo.output_index);
-                        utxo_id == input.utxo_id
-                    }) {
-                        self.utxo_set.remove(index);
-                    }
-                }
-
-                // Yeni UTXO'ları ekle
-                for (i, output) in tx.outputs.iter().enumerate() {
-                    let utxo = UTXO {
-                        transaction_id: tx.id.clone(),
-                        output_index: i,
-                        amount: output.amount,
-                        recipient_address: output.recipient_address.clone(),
-                    };
-                    self.utxo_set.push(utxo);
-                }
+                Self::apply_transaction_to_utxo_set(tx, &mut self.utxo_set);
             }
         }
     }

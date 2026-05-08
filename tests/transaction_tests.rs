@@ -1,4 +1,4 @@
-use blockchain_sim::transaction::{get_utxo_id, Transaction, TxInput, TxOutput, UTXO};
+use blockchain_sim::transaction::{Transaction, TxInput, TxOutput, UTXO};
 
 #[test]
 fn coinbase_transaction_gecerli_olmali() {
@@ -17,9 +17,10 @@ fn output_inputtan_buyukse_transaction_gecersiz_olmali() {
         recipient_address: "sender-address".to_string(),
     };
     let input = TxInput {
-        utxo_id: get_utxo_id(&source_utxo.transaction_id, source_utxo.output_index),
-        utxo_output_index: source_utxo.output_index,
+        prev_tx_id: source_utxo.transaction_id.clone(),
+        prev_output_index: source_utxo.output_index,
         signature: Vec::new(),
+        public_key: Vec::new(),
         sender_address: "sender-address".to_string(),
     };
     let outputs = vec![TxOutput {
@@ -40,9 +41,10 @@ fn input_ve_output_toplamlari_hesaplanmali() {
         recipient_address: "sender-address".to_string(),
     };
     let input = TxInput {
-        utxo_id: get_utxo_id(&source_utxo.transaction_id, source_utxo.output_index),
-        utxo_output_index: source_utxo.output_index,
+        prev_tx_id: source_utxo.transaction_id.clone(),
+        prev_output_index: source_utxo.output_index,
         signature: Vec::new(),
+        public_key: Vec::new(),
         sender_address: "sender-address".to_string(),
     };
     let outputs = vec![
@@ -59,4 +61,29 @@ fn input_ve_output_toplamlari_hesaplanmali() {
 
     assert_eq!(tx.get_total_input_amount(&[source_utxo]), 3_000);
     assert_eq!(tx.get_total_output_amount(), 3_000);
+}
+
+#[test]
+fn ayni_utxo_iki_defa_harcanamaz() {
+    let source_utxo = UTXO {
+        transaction_id: "funding-tx".to_string(),
+        output_index: 0,
+        amount: 4_000,
+        recipient_address: "sender-address".to_string(),
+    };
+    let input = TxInput {
+        prev_tx_id: source_utxo.transaction_id.clone(),
+        prev_output_index: source_utxo.output_index,
+        signature: vec![1, 2, 3],
+        public_key: vec![2; 33],
+        sender_address: "sender-address".to_string(),
+    };
+    let duplicate_input = input.clone();
+    let outputs = vec![TxOutput {
+        amount: 3_000,
+        recipient_address: "receiver-address".to_string(),
+    }];
+
+    let tx = Transaction::new(vec![input, duplicate_input], outputs);
+    assert!(!tx.is_valid(&[source_utxo]));
 }

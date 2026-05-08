@@ -350,7 +350,12 @@ fn main() {
                 } else {
                     for (i, tx) in network_lock.mempool.iter().enumerate() {
                         println!("\nİşlem {}: ID: {}", i + 1, tx.id);
-                        println!("Gönderen: {}", tx.inputs[0].sender_address);
+                        let sender = tx
+                            .inputs
+                            .first()
+                            .map(|input| input.sender_address.as_str())
+                            .unwrap_or("COINBASE");
+                        println!("Gönderen: {}", sender);
                         println!("Alıcı: {}", tx.outputs[0].recipient_address);
                         println!(
                             "Miktar: {} coin",
