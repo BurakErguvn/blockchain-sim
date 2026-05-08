@@ -1,13 +1,18 @@
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OutPoint {
+    pub txid: String,
+    pub vout: usize,
+}
 
 // UTXO (Unspent Transaction Output) yapısı
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UTXO {
-    pub transaction_id: String,    // Bu UTXO'nun ait olduğu işlemin ID'si
-    pub output_index: usize,       // İşlemdeki çıktı indeksi
+    pub outpoint: OutPoint,        // Bu UTXO'nun kimliği (txid + vout)
     pub amount: u64,               // Miktar (örn. satoshi cinsinden)
     pub recipient_address: String, // Alıcı adresi
 }
@@ -15,11 +20,10 @@ pub struct UTXO {
 // Transaction Input yapısı
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TxInput {
-    pub prev_tx_id: String,       // Harcanacak UTXO'nun ait olduğu işlem ID'si
-    pub prev_output_index: usize, // Harcanacak çıktının indeksi
-    pub signature: Vec<u8>,       // Girdi için imza
-    pub public_key: Vec<u8>,      // Harcayan cüzdanın public key'i (compressed)
-    pub sender_address: String,   // Gönderen adresi
+    pub previous_output: OutPoint, // Harcanacak UTXO'nun outpoint bilgisi
+    pub signature: Vec<u8>,        // Girdi için imza
+    pub public_key: Vec<u8>,       // Harcayan cüzdanın public key'i (compressed)
+    pub sender_address: String,    // Gönderen adresi
 }
 
 // Transaction Output yapısı
@@ -93,8 +97,8 @@ impl Transaction {
 
         // Girdileri hash'e ekle
         for input in &self.inputs {
-            hasher.update(input.prev_tx_id.as_bytes());
-            hasher.update(input.prev_output_index.to_le_bytes());
+            hasher.update(input.previous_output.txid.as_bytes());
+            hasher.update(input.previous_output.vout.to_le_bytes());
             hasher.update(&input.public_key);
             hasher.update(input.sender_address.as_bytes());
         }
@@ -128,8 +132,8 @@ impl Transaction {
         hasher.update((input_index as u64).to_le_bytes());
 
         for input in &self.inputs {
-            hasher.update(input.prev_tx_id.as_bytes());
-            hasher.update(input.prev_output_index.to_le_bytes());
+            hasher.update(input.previous_output.txid.as_bytes());
+            hasher.update(input.previous_output.vout.to_le_bytes());
             hasher.update(&input.public_key);
         }
 
@@ -142,18 +146,12 @@ impl Transaction {
     }
 
     // İşlemin toplam girdi miktarını hesapla
-    pub fn get_total_input_amount(&self, utxo_set: &[UTXO]) -> u64 {
+    pub fn get_total_input_amount(&self, utxo_set: &HashMap<OutPoint, UTXO>) -> u64 {
         let mut total = 0;
 
         for input in &self.inputs {
-            // UTXO setinde bu girdiyle eşleşen UTXO'yu bul
-            for utxo in utxo_set {
-                if utxo.transaction_id == input.prev_tx_id
-                    && utxo.output_index == input.prev_output_index
-                {
-                    total += utxo.amount;
-                    break;
-                }
+            if let Some(utxo) = utxo_set.get(&input.previous_output) {
+                total += utxo.amount;
             }
         }
 
@@ -166,7 +164,7 @@ impl Transaction {
     }
 
     // İşlem ücretini hesapla (input - output)
-    pub fn calculate_fee(&self, utxo_set: &[UTXO]) -> Option<u64> {
+    pub fn calculate_fee(&self, utxo_set: &HashMap<OutPoint, UTXO>) -> Option<u64> {
         if self.is_coinbase() {
             return None;
         }
@@ -177,7 +175,7 @@ impl Transaction {
     }
 
     // İşlemin geçerli olup olmadığını kontrol et
-    pub fn is_valid(&self, utxo_set: &[UTXO]) -> bool {
+    pub fn is_valid(&self, utxo_set: &HashMap<OutPoint, UTXO>) -> bool {
         if self.outputs.is_empty() {
             return false;
         }
@@ -197,7 +195,7 @@ impl Transaction {
 
         let mut seen_outpoints = HashSet::new();
         for input in &self.inputs {
-            let outpoint = (input.prev_tx_id.clone(), input.prev_output_index);
+            let outpoint = input.previous_output.clone();
             if !seen_outpoints.insert(outpoint) {
                 return false;
             }
@@ -226,7 +224,7 @@ impl fmt::Display for Transaction {
             write!(
                 f,
                 "  [{}] Outpoint: {}:{}, Gönderen: {}\n",
-                i, input.prev_tx_id, input.prev_output_index, input.sender_address
+                i, input.previous_output.txid, input.previous_output.vout, input.sender_address
             )?;
         }
 
@@ -243,11 +241,4 @@ impl fmt::Display for Transaction {
 
         Ok(())
     }
-}
-
-// UTXO'ları yönetmek için yardımcı fonksiyonlar
-pub fn get_utxo_id(tx_id: &str, output_index: usize) -> String {
-    // UTXO ID'si, transaction ID ve output index'in birleşiminden oluşur
-    // Örnek: tx_id = "abc123def", output_index = 0 -> utxo_id = "abc123def0"
-    format!("{}{}", tx_id, output_index)
 }

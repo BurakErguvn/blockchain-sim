@@ -2,16 +2,17 @@ use bs58;
 use rand::Rng;
 use secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
-use crate::transaction::{Transaction, TxInput, TxOutput, UTXO};
+use crate::transaction::{OutPoint, Transaction, TxInput, TxOutput, UTXO};
 
 #[derive(Clone, Debug)]
 pub struct Wallet {
     private_key: SecretKey,
     public_key: PublicKey,
     address: String,
-    balance: u64,     // Toplam bakiye
-    utxos: Vec<UTXO>, // Bu cüzdana ait harcanmamış çıktılar
+    balance: u64,                   // Toplam bakiye
+    utxos: HashMap<OutPoint, UTXO>, // Bu cüzdana ait harcanmamış çıktılar
 }
 
 impl Wallet {
@@ -34,7 +35,7 @@ impl Wallet {
             public_key,
             address,
             balance: 0,
-            utxos: Vec::new(),
+            utxos: HashMap::new(),
         }
     }
 
@@ -144,20 +145,15 @@ impl Wallet {
 
     // Cüzdana UTXO ekle
     pub fn add_utxo(&mut self, utxo: UTXO) {
-        if utxo.recipient_address == self.address {
+        if utxo.recipient_address == self.address && !self.utxos.contains_key(&utxo.outpoint) {
             self.balance += utxo.amount;
-            self.utxos.push(utxo);
+            self.utxos.insert(utxo.outpoint.clone(), utxo);
         }
     }
 
     // Cüzdandan UTXO çıkar (harcanmış olarak işaretle)
-    pub fn remove_utxo(&mut self, tx_id: &str, output_index: usize) {
-        if let Some(index) = self
-            .utxos
-            .iter()
-            .position(|utxo| utxo.transaction_id == tx_id && utxo.output_index == output_index)
-        {
-            let removed_utxo = self.utxos.remove(index);
+    pub fn remove_utxo(&mut self, outpoint: &OutPoint) {
+        if let Some(removed_utxo) = self.utxos.remove(outpoint) {
             self.balance -= removed_utxo.amount;
         }
     }
@@ -179,7 +175,7 @@ impl Wallet {
         let mut selected_utxos = Vec::new();
         let mut selected_amount = 0;
 
-        for utxo in &self.utxos {
+        for utxo in self.utxos.values() {
             selected_utxos.push(utxo.clone());
             selected_amount += utxo.amount;
 
@@ -193,8 +189,7 @@ impl Wallet {
         let public_key_bytes = self.get_public_key_bytes();
         for utxo in &selected_utxos {
             inputs.push(TxInput {
-                prev_tx_id: utxo.transaction_id.clone(),
-                prev_output_index: utxo.output_index,
+                previous_output: utxo.outpoint.clone(),
                 signature: Vec::new(),
                 public_key: public_key_bytes.clone(),
                 sender_address: self.address.clone(),
@@ -237,14 +232,9 @@ impl Wallet {
                 if input.sender_address == self.address {
                     // UTXO'nun hala cüzdanda olup olmadığını kontrol et
                     // Eğer zaten harcanmışsa (işlem oluşturulduğunda çıkarılmışsa) tekrar çıkarma
-                    let utxo_exists = self.utxos.iter().any(|utxo| {
-                        utxo.transaction_id == input.prev_tx_id
-                            && utxo.output_index == input.prev_output_index
-                    });
-
-                    if utxo_exists {
+                    if self.utxos.contains_key(&input.previous_output) {
                         // UTXO hala cüzdanda, çıkar
-                        self.remove_utxo(&input.prev_tx_id, input.prev_output_index);
+                        self.remove_utxo(&input.previous_output);
                     }
                 }
             }
@@ -253,19 +243,16 @@ impl Wallet {
             for (i, output) in tx.outputs.iter().enumerate() {
                 if output.recipient_address == self.address {
                     let utxo = UTXO {
-                        transaction_id: tx.id.clone(),
-                        output_index: i,
+                        outpoint: OutPoint {
+                            txid: tx.id.clone(),
+                            vout: i,
+                        },
                         amount: output.amount,
                         recipient_address: self.address.clone(),
                     };
 
                     // UTXO'nun zaten cüzdanda olup olmadığını kontrol et
-                    let utxo_exists = self.utxos.iter().any(|existing_utxo| {
-                        existing_utxo.transaction_id == utxo.transaction_id
-                            && existing_utxo.output_index == utxo.output_index
-                    });
-
-                    if !utxo_exists {
+                    if !self.utxos.contains_key(&utxo.outpoint) {
                         // Yeni UTXO ekleniyor
                         self.add_utxo(utxo);
                     }

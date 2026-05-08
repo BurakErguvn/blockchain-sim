@@ -7,12 +7,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 // Gerekli modülleri kullan
 use crate::block::Block;
 use crate::node::Node;
-use crate::transaction::{Transaction, UTXO};
+use crate::transaction::{OutPoint, Transaction};
 
 pub struct BlockchainNetwork {
     pub nodes: Vec<Node>,
     pub mempool: Vec<Transaction>,
-    pub mempool_spent_outpoints: HashMap<String, String>,
+    pub mempool_spent_outpoints: HashMap<OutPoint, String>,
     pub current_validator_id: Option<usize>,
     pub difficulty: usize,
     pub block_time: u64,      // Saniye cinsinden blok oluşturma süresi
@@ -193,22 +193,17 @@ impl BlockchainNetwork {
         }
     }
 
-    fn outpoint_key(transaction_id: &str, output_index: usize) -> String {
-        format!("{}:{}", transaction_id, output_index)
-    }
-
     fn has_mempool_conflict(&self, transaction: &Transaction) -> bool {
         transaction.inputs.iter().any(|input| {
-            let outpoint_key = Self::outpoint_key(&input.prev_tx_id, input.prev_output_index);
-            self.mempool_spent_outpoints.contains_key(&outpoint_key)
+            self.mempool_spent_outpoints
+                .contains_key(&input.previous_output)
         })
     }
 
     fn track_transaction_inputs(&mut self, transaction: &Transaction) {
         for input in &transaction.inputs {
-            let outpoint_key = Self::outpoint_key(&input.prev_tx_id, input.prev_output_index);
             self.mempool_spent_outpoints
-                .insert(outpoint_key, transaction.id.clone());
+                .insert(input.previous_output.clone(), transaction.id.clone());
         }
     }
 
@@ -216,9 +211,8 @@ impl BlockchainNetwork {
         self.mempool_spent_outpoints.clear();
         for tx in &self.mempool {
             for input in &tx.inputs {
-                let outpoint_key = Self::outpoint_key(&input.prev_tx_id, input.prev_output_index);
                 self.mempool_spent_outpoints
-                    .insert(outpoint_key, tx.id.clone());
+                    .insert(input.previous_output.clone(), tx.id.clone());
             }
         }
     }

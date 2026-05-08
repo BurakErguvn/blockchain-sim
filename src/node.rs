@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // Gerekli modülleri kullan
 use crate::block::Block;
-use crate::transaction::{Transaction, UTXO};
+use crate::transaction::{OutPoint, Transaction, UTXO};
 use crate::wallet::Wallet;
 
 //Node sınıfı
@@ -12,11 +13,11 @@ pub struct Node {
     pub id: usize,
     pub connections: Vec<usize>, // Bağlı nodeların id'leri
     pub is_validator: bool,
-    pub blockchain: Vec<Block>,    // Blok zinciri
-    pub wallet: Wallet,            // Cüzdan
-    pub mempool: Vec<Transaction>, // Henüz bloklara eklenmemiş işlemler
-    pub utxo_set: Vec<UTXO>,       // Tüm harcanmamış çıktılar (UTXO seti)
-    pub mining_reward: u64,        // Madencilik ödülü
+    pub blockchain: Vec<Block>,            // Blok zinciri
+    pub wallet: Wallet,                    // Cüzdan
+    pub mempool: Vec<Transaction>,         // Henüz bloklara eklenmemiş işlemler
+    pub utxo_set: HashMap<OutPoint, UTXO>, // Tüm harcanmamış çıktılar (UTXO seti)
+    pub mining_reward: u64,                // Madencilik ödülü
 }
 
 impl fmt::Display for Node {
@@ -38,7 +39,7 @@ impl Node {
     pub fn new(id: usize, genesis_block: Option<Block>) -> Self {
         let wallet = Wallet::new(); // Yeni bir cüzdan oluştur
         let mut blockchain = Vec::new();
-        let mut utxo_set = Vec::new();
+        let mut utxo_set = HashMap::new();
         let mut wallet_clone = wallet.clone();
 
         // Genesis bloğu dışarıdan verilmişse onu kullan
@@ -52,12 +53,14 @@ impl Node {
                 // Eğer bu node'un adresi ile coinbase işleminin alıcı adresi aynıysa UTXO'yu ekle
                 if coinbase_tx.outputs[0].recipient_address == wallet.get_address() {
                     let genesis_utxo = UTXO {
-                        transaction_id: coinbase_tx.id.clone(),
-                        output_index: 0,
+                        outpoint: OutPoint {
+                            txid: coinbase_tx.id.clone(),
+                            vout: 0,
+                        },
                         amount: coinbase_tx.outputs[0].amount,
                         recipient_address: coinbase_tx.outputs[0].recipient_address.clone(),
                     };
-                    utxo_set.push(genesis_utxo.clone());
+                    utxo_set.insert(genesis_utxo.outpoint.clone(), genesis_utxo.clone());
                     wallet_clone.add_utxo(genesis_utxo);
                 }
             }
@@ -118,7 +121,7 @@ impl Node {
     fn verify_transaction_with_utxo_set(
         &self,
         transaction: &Transaction,
-        utxo_set: &[UTXO],
+        utxo_set: &HashMap<OutPoint, UTXO>,
     ) -> bool {
         // Coinbase işlemleri her zaman geçerlidir
         if transaction.inputs.is_empty() && !transaction.outputs.is_empty() {
@@ -133,10 +136,7 @@ impl Node {
 
         // Her girdi için UTXO sahiplik ve imza kontrolü
         for (index, input) in transaction.inputs.iter().enumerate() {
-            let Some(utxo) = utxo_set.iter().find(|utxo| {
-                utxo.transaction_id == input.prev_tx_id
-                    && utxo.output_index == input.prev_output_index
-            }) else {
+            let Some(utxo) = utxo_set.get(&input.previous_output) else {
                 return false;
             };
 
@@ -164,23 +164,27 @@ impl Node {
         true
     }
 
-    fn apply_transaction_to_utxo_set(transaction: &Transaction, utxo_set: &mut Vec<UTXO>) {
+    fn apply_transaction_to_utxo_set(
+        transaction: &Transaction,
+        utxo_set: &mut HashMap<OutPoint, UTXO>,
+    ) {
         for input in &transaction.inputs {
-            if let Some(index) = utxo_set.iter().position(|utxo| {
-                utxo.transaction_id == input.prev_tx_id
-                    && utxo.output_index == input.prev_output_index
-            }) {
-                utxo_set.remove(index);
-            }
+            utxo_set.remove(&input.previous_output);
         }
 
         for (i, output) in transaction.outputs.iter().enumerate() {
-            utxo_set.push(UTXO {
-                transaction_id: transaction.id.clone(),
-                output_index: i,
-                amount: output.amount,
-                recipient_address: output.recipient_address.clone(),
-            });
+            let outpoint = OutPoint {
+                txid: transaction.id.clone(),
+                vout: i,
+            };
+            utxo_set.insert(
+                outpoint.clone(),
+                UTXO {
+                    outpoint,
+                    amount: output.amount,
+                    recipient_address: output.recipient_address.clone(),
+                },
+            );
         }
     }
 
