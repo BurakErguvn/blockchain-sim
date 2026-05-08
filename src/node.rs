@@ -193,7 +193,7 @@ impl Node {
 
         // Mempool'dan en fazla 10 işlem al
         let mut selected_transactions = Vec::new();
-        let transaction_limit = 10;
+        let transaction_limit: usize = 10;
         let mut total_fees = 0_u64;
 
         // Mempool'dan geçerli işlemleri seç
