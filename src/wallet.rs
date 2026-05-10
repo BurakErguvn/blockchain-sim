@@ -49,6 +49,26 @@ impl Wallet {
         &self.public_key
     }
 
+    pub fn private_key_hex(&self) -> String {
+        hex::encode(self.private_key.secret_bytes())
+    }
+
+    pub fn from_private_key_hex(private_key_hex: &str) -> Option<Self> {
+        let private_key_bytes = hex::decode(private_key_hex).ok()?;
+        let private_key = SecretKey::from_slice(&private_key_bytes).ok()?;
+        let secp = Secp256k1::new();
+        let public_key = PublicKey::from_secret_key(&secp, &private_key);
+        let address = Self::generate_address(&public_key);
+
+        Some(Self {
+            private_key,
+            public_key,
+            address,
+            balance: 0,
+            utxos: HashMap::new(),
+        })
+    }
+
     pub fn get_public_key_bytes(&self) -> Vec<u8> {
         self.public_key.serialize().to_vec()
     }

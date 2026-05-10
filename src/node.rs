@@ -139,6 +139,43 @@ impl Node {
         }
     }
 
+    pub fn from_persisted_state(
+        id: usize,
+        connections: Vec<usize>,
+        is_validator: bool,
+        blockchain: Vec<Block>,
+        wallet_private_key_hex: &str,
+        mining_reward: u64,
+        utxo_snapshot: Option<Vec<UTXO>>,
+    ) -> Option<Self> {
+        let wallet = Wallet::from_private_key_hex(wallet_private_key_hex)?;
+        let mut node = Node {
+            id,
+            connections,
+            is_validator,
+            blockchain,
+            wallet,
+            mempool: Vec::new(),
+            utxo_set: HashMap::new(),
+            mining_reward,
+        };
+
+        if let Some(snapshot) = utxo_snapshot {
+            node.utxo_set = snapshot
+                .into_iter()
+                .map(|utxo| (utxo.outpoint.clone(), utxo))
+                .collect();
+        } else {
+            node.rebuild_utxo_set();
+        }
+        node.wallet.rebuild_from_utxo_set(&node.utxo_set);
+        Some(node)
+    }
+
+    pub fn utxo_snapshot(&self) -> Vec<UTXO> {
+        self.utxo_set.values().cloned().collect()
+    }
+
     // Cüzdan adresini almak için fonksiyon
     pub fn get_address(&self) -> &str {
         self.wallet.get_address()

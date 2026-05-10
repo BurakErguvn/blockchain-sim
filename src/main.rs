@@ -17,6 +17,8 @@ struct BlockchainMessage {
 }
 
 fn main() {
+    let state_path = BlockchainNetwork::DEFAULT_STATE_PATH;
+
     // Blockchain ağını oluştur
     let network = Arc::new(Mutex::new(BlockchainNetwork::new()));
 
@@ -93,40 +95,87 @@ fn main() {
     // Blockchain ağını başlat
     {
         let mut network_lock = network.lock().unwrap();
+        let mut loaded_from_disk = false;
 
-        // Madencilik zorluğunu ayarla (2 = hash'in başında 2 tane 0 olmalı)
-        network_lock.set_difficulty(2);
-
-        // Block time'ı ayarla (gerçekçi bir simülasyon için)
-        network_lock.set_block_time(60); // 60 saniye
-
-        println!("Blockchain simülasyonu başlatılıyor...");
-
-        // 5 tane node oluştur
-        println!("\n--- NODE'LAR OLUŞTURULUYOR ---");
-        for _i in 0..5 {
-            let node_id = network_lock.add_node();
-            println!("Node {} oluşturuldu", node_id);
-        }
-
-        // Node'ları birbirine bağla (tam bağlı ağ)
-        println!("\n--- NODE'LAR ARASI BAĞLANTILAR KURULUYOR ---");
-        for i in 0..network_lock.node_count() {
-            for j in (i + 1)..network_lock.node_count() {
-                network_lock.connect_nodes(i, j);
+        match BlockchainNetwork::load_from_disk(state_path) {
+            Ok(loaded_network) => {
+                *network_lock = loaded_network;
+                loaded_from_disk = true;
+                println!(
+                    "Persisted state yüklendi. Node sayısı: {}",
+                    network_lock.node_count()
+                );
+                network_lock.print_network_state();
+            }
+            Err(err) => {
+                println!("Persisted state bulunamadı / yüklenemedi: {}", err);
             }
         }
-        println!("Tüm node'lar arasında bağlantılar kuruldu.");
 
-        // Başlangıç durumunu görüntüle
-        println!("\n--- BLOCKCHAIN AĞI OLUŞTURULDU ---");
-        network_lock.print_network_state();
+        if !loaded_from_disk {
+            // Madencilik zorluğunu ayarla (2 = hash'in başında 2 tane 0 olmalı)
+            network_lock.set_difficulty(2);
+
+            // Block time'ı ayarla (gerçekçi bir simülasyon için)
+            network_lock.set_block_time(60); // 60 saniye
+
+            println!("Blockchain simülasyonu başlatılıyor...");
+
+            // 5 tane node oluştur
+            println!("\n--- NODE'LAR OLUŞTURULUYOR ---");
+            for _i in 0..5 {
+                let node_id = network_lock.add_node();
+                println!("Node {} oluşturuldu", node_id);
+            }
+
+            // Node'ları birbirine bağla (tam bağlı ağ)
+            println!("\n--- NODE'LAR ARASI BAĞLANTILAR KURULUYOR ---");
+            for i in 0..network_lock.node_count() {
+                for j in (i + 1)..network_lock.node_count() {
+                    network_lock.connect_nodes(i, j);
+                }
+            }
+            println!("Tüm node'lar arasında bağlantılar kuruldu.");
+
+            // Başlangıç durumunu görüntüle
+            println!("\n--- BLOCKCHAIN AĞI OLUŞTURULDU ---");
+            network_lock.print_network_state();
+        }
 
         // İlk madenci seç
-        println!("\n--- MADENCİ SEÇİLİYOR ---");
-        network_lock.select_random_validator();
-        let validator_id = network_lock.current_val_id().unwrap();
+        if network_lock.current_val_id().is_none() {
+            println!("\n--- MADENCİ SEÇİLİYOR ---");
+            network_lock.select_random_validator();
+        }
+        let validator_id = network_lock.current_val_id().unwrap_or(0);
         println!("Node {} madenci olarak seçildi.", validator_id);
+
+        if !loaded_from_disk {
+            // Genesis bloğunu oluştur
+            println!("Genesis bloğu oluşturuluyor...");
+            if let Some(block) = network_lock.mine_block() {
+                println!("Genesis bloğu oluşturuldu: {}", block.hash);
+
+                // Blok mesajını gönder
+                let message = BlockchainMessage {
+                    block: block.clone(),
+                    validator_id: validator_id, // Bloğu oluşturan madenci (mevcut validator)
+                    next_validator_id: network_lock.current_val_id().unwrap_or(validator_id), // Yeni seçilen madenci
+                };
+                let _ = block_sender.send(message);
+            } else {
+                println!("Genesis bloğu oluşturulamadı!");
+                return;
+            }
+
+            // Genesis blok sonrası ağın durumunu görüntüle
+            println!("\n--- GENESIS BLOĞU SONRASI AĞ DURUMU ---");
+            network_lock.print_network_state();
+        }
+
+        if let Err(err) = network_lock.save_to_disk(state_path) {
+            println!("Başlangıç state'i diske yazılamadı: {}", err);
+        }
 
         // Otomatik madencilik işlemini başlat
         println!("\n--- OTOMATİK MADENCİLİK BAŞLATILIYOR ---");
@@ -140,27 +189,6 @@ fn main() {
                 return;
             }
         };
-
-        // Genesis bloğunu oluştur
-        println!("Genesis bloğu oluşturuluyor...");
-        if let Some(block) = network_lock.mine_block() {
-            println!("Genesis bloğu oluşturuldu: {}", block.hash);
-
-            // Blok mesajını gönder
-            let message = BlockchainMessage {
-                block: block.clone(),
-                validator_id: validator_id, // Bloğu oluşturan madenci (mevcut validator)
-                next_validator_id: network_lock.current_val_id().unwrap(), // Yeni seçilen madenci
-            };
-            let _ = block_sender.send(message);
-        } else {
-            println!("Genesis bloğu oluşturulamadı!");
-            return;
-        }
-
-        // Genesis blok sonrası ağın durumunu görüntüle
-        println!("\n--- GENESIS BLOĞU SONRASI AĞ DURUMU ---");
-        network_lock.print_network_state();
     }
 
     // Blockchain ağı için bir klon oluştur
@@ -207,6 +235,10 @@ fn main() {
 
                     // Son blok zamanını güncelle
                     last_block_time = now;
+
+                    if let Err(err) = network_lock.save_to_disk(state_path) {
+                        println!("State diske yazılamadı: {}", err);
+                    }
                 }
             }
         }
@@ -308,6 +340,9 @@ fn main() {
 
                     if let Some(_) = tx {
                         println!("İşlem oluşturuldu ve mempool'a eklendi");
+                        if let Err(err) = network_lock.save_to_disk(state_path) {
+                            println!("State diske yazılamadı: {}", err);
+                        }
                     } else {
                         println!("İşlem oluşturulamadı! Bakiye yetersiz olabilir.");
                     }
@@ -374,6 +409,9 @@ fn main() {
                     match network_lock.stop_automatic_mining() {
                         Ok(_) => println!("Madencilik durduruldu"),
                         Err(e) => println!("Madencilik durdurulamadı: {}", e),
+                    }
+                    if let Err(err) = network_lock.save_to_disk(state_path) {
+                        println!("State diske yazılamadı: {}", err);
                     }
                 }
 
