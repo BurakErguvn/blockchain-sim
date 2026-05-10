@@ -208,7 +208,8 @@ impl BlockchainNetwork {
                 (tx, sender_node.utxo_set.clone())
             };
 
-            let tx_info = Self::calculate_tx_info(&tx, &sender_utxo_snapshot, self.next_mempool_sequence())?;
+            let tx_info =
+                Self::calculate_tx_info(&tx, &sender_utxo_snapshot, self.next_mempool_sequence())?;
             if tx_info.fee_rate_sat_per_kb < self.min_fee_rate_sat_per_kb {
                 if let Some(sender_node) = self.nodes.get_mut(sender_id) {
                     sender_node
@@ -382,7 +383,8 @@ impl BlockchainNetwork {
             if tx.is_coinbase() {
                 continue;
             }
-            if let Some(info) = Self::calculate_tx_info(&tx, utxo_set, self.next_mempool_sequence()) {
+            if let Some(info) = Self::calculate_tx_info(&tx, utxo_set, self.next_mempool_sequence())
+            {
                 self.mempool_total_bytes = self.mempool_total_bytes.saturating_add(info.size_bytes);
                 self.mempool_policy.insert(tx.id.clone(), info);
                 valid_mempool.push(tx);
@@ -487,6 +489,8 @@ impl BlockchainNetwork {
         self.last_block_time = now;
 
         if let Some(validator_id) = self.current_validator_id {
+            let mut removed_tx_ids_after_mining: Vec<String> = Vec::new();
+
             // Validator'u al
             let validator = match self.nodes.get_mut(validator_id) {
                 Some(v) => v,
@@ -525,8 +529,8 @@ impl BlockchainNetwork {
 
                 for tx_id in &removed_tx_ids {
                     self.mempool_policy.remove(tx_id);
-                    self.remove_transaction_from_nodes_mempool(tx_id);
                 }
+                removed_tx_ids_after_mining = removed_tx_ids.into_iter().collect();
 
                 // Validator'un blockchain'ine bloğu ekle
                 validator.blockchain.push(block.clone());
@@ -541,6 +545,10 @@ impl BlockchainNetwork {
                 self.select_random_validator();
             } else {
                 println!("Blok oluşturulamadı!");
+            }
+
+            for tx_id in &removed_tx_ids_after_mining {
+                self.remove_transaction_from_nodes_mempool(tx_id);
             }
 
             new_block

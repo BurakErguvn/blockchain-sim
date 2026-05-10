@@ -106,9 +106,9 @@ impl Node {
         fee: u64,
     ) -> Option<Transaction> {
         // Cüzdanın işlem oluşturmasını iste
-        if let Some(transaction) = self
-            .wallet
-            .create_transaction_with_fee(recipient_address, amount, fee)
+        if let Some(transaction) =
+            self.wallet
+                .create_transaction_with_fee(recipient_address, amount, fee)
         {
             // İşlemi doğrula
             if self.verify_transaction(&transaction) {
@@ -252,7 +252,11 @@ impl Node {
                 let tx_fee = tx.calculate_fee(&working_utxo_set)?;
                 total_fees = total_fees.checked_add(tx_fee)?;
                 selected_transactions.push(tx.clone());
-                if let Some(i) = self.mempool.iter().position(|original| original.id == tx.id) {
+                if let Some(i) = self
+                    .mempool
+                    .iter()
+                    .position(|original| original.id == tx.id)
+                {
                     selected_tx_indices.push(i);
                 }
                 Self::apply_transaction_to_utxo_set(tx, &mut working_utxo_set);
