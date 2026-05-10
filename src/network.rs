@@ -1,5 +1,6 @@
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
@@ -22,7 +23,7 @@ struct MempoolTxInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct PersistedNodeState {
+struct PersistedNodeStateV1 {
     id: usize,
     connections: Vec<usize>,
     mining_reward: u64,
@@ -31,7 +32,7 @@ struct PersistedNodeState {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct PersistedNetworkState {
+struct PersistedNetworkStateV1 {
     schema_version: u32,
     difficulty: usize,
     block_time: u64,
@@ -40,7 +41,32 @@ struct PersistedNetworkState {
     max_mempool_bytes: usize,
     min_fee_rate_sat_per_kb: u64,
     replacement_increment_sat_per_kb: u64,
-    nodes: Vec<PersistedNodeState>,
+    nodes: Vec<PersistedNodeStateV1>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedNodeStateV2 {
+    id: usize,
+    connections: Vec<usize>,
+    mining_reward: u64,
+    blockchain: Vec<Block>,
+    wallet_private_key_hex: String,
+    utxo_snapshot: Vec<UTXO>,
+    utxo_snapshot_checksum: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedNetworkStateV2 {
+    schema_version: u32,
+    difficulty: usize,
+    block_time: u64,
+    last_block_time: u64,
+    current_validator_id: Option<usize>,
+    max_mempool_bytes: usize,
+    min_fee_rate_sat_per_kb: u64,
+    replacement_increment_sat_per_kb: u64,
+    nodes: Vec<PersistedNodeStateV2>,
+    mempool: Vec<Transaction>,
 }
 
 pub struct BlockchainNetwork {
@@ -63,7 +89,8 @@ pub struct BlockchainNetwork {
 }
 
 impl BlockchainNetwork {
-    const PERSISTENCE_SCHEMA_VERSION: u32 = 1;
+    const PERSISTENCE_SCHEMA_VERSION_V1: u32 = 1;
+    const PERSISTENCE_SCHEMA_VERSION_V2: u32 = 2;
     pub const DEFAULT_STATE_PATH: &'static str = "./data/network_state.json";
     const DEFAULT_MAX_MEMPOOL_BYTES: usize = 300 * 1024 * 1024;
     const DEFAULT_MIN_FEE_RATE_SAT_PER_KB: u64 = 1_000;
@@ -96,21 +123,46 @@ impl BlockchainNetwork {
         }
     }
 
-    fn to_persisted_state(&self) -> PersistedNetworkState {
+    fn utxo_snapshot_checksum(utxos: &[UTXO]) -> String {
+        let mut normalized_utxos: Vec<String> = utxos
+            .iter()
+            .map(|utxo| {
+                format!(
+                    "{}:{}:{}:{}",
+                    utxo.outpoint.txid, utxo.outpoint.vout, utxo.amount, utxo.recipient_address
+                )
+            })
+            .collect();
+        normalized_utxos.sort();
+
+        let mut hasher = Sha256::new();
+        for normalized in normalized_utxos {
+            hasher.update(normalized.as_bytes());
+        }
+        let checksum = hasher.finalize();
+        hex::encode(checksum)
+    }
+
+    fn to_persisted_state_v2(&self) -> PersistedNetworkStateV2 {
         let nodes = self
             .nodes
             .iter()
-            .map(|node| PersistedNodeState {
-                id: node.id,
-                connections: node.connections.clone(),
-                mining_reward: node.mining_reward,
-                blockchain: node.blockchain.clone(),
-                wallet_private_key_hex: node.wallet.private_key_hex(),
+            .map(|node| {
+                let utxo_snapshot = node.utxo_snapshot();
+                PersistedNodeStateV2 {
+                    id: node.id,
+                    connections: node.connections.clone(),
+                    mining_reward: node.mining_reward,
+                    blockchain: node.blockchain.clone(),
+                    wallet_private_key_hex: node.wallet.private_key_hex(),
+                    utxo_snapshot_checksum: Self::utxo_snapshot_checksum(&utxo_snapshot),
+                    utxo_snapshot,
+                }
             })
             .collect();
 
-        PersistedNetworkState {
-            schema_version: Self::PERSISTENCE_SCHEMA_VERSION,
+        PersistedNetworkStateV2 {
+            schema_version: Self::PERSISTENCE_SCHEMA_VERSION_V2,
             difficulty: self.difficulty,
             block_time: self.block_time,
             last_block_time: self.last_block_time,
@@ -119,17 +171,45 @@ impl BlockchainNetwork {
             min_fee_rate_sat_per_kb: self.min_fee_rate_sat_per_kb,
             replacement_increment_sat_per_kb: self.replacement_increment_sat_per_kb,
             nodes,
+            mempool: self.mempool.clone(),
         }
     }
 
-    fn from_persisted_state(state: PersistedNetworkState) -> Result<Self, String> {
-        if state.schema_version != Self::PERSISTENCE_SCHEMA_VERSION {
-            return Err(format!(
-                "Desteklenmeyen state sürümü: {}",
-                state.schema_version
-            ));
-        }
+    fn build_network_from_loaded_state(
+        nodes: Vec<Node>,
+        current_validator_id: Option<usize>,
+        difficulty: usize,
+        block_time: u64,
+        last_block_time: u64,
+        max_mempool_bytes: usize,
+        min_fee_rate_sat_per_kb: u64,
+        replacement_increment_sat_per_kb: u64,
+        mempool: Vec<Transaction>,
+    ) -> Self {
+        let mut network = Self::new();
+        network.nodes = nodes;
+        network.mempool.clear();
+        network.mempool_policy.clear();
+        network.mempool_spent_outpoints.clear();
+        network.mempool_total_bytes = 0;
+        network.mempool_sequence_counter = 0;
+        network.max_mempool_bytes = max_mempool_bytes;
+        network.min_fee_rate_sat_per_kb = min_fee_rate_sat_per_kb;
+        network.replacement_increment_sat_per_kb = replacement_increment_sat_per_kb;
+        network.current_validator_id = current_validator_id;
+        network.difficulty = difficulty;
+        network.block_time = block_time;
+        network.last_block_time = last_block_time;
+        network.mining_active = false;
+        network.mining_thread = None;
+        network.stop_sender = None;
+        network.mempool = mempool;
+        network.reconcile_network_mempool_after_chain_sync();
+        network.sync_nodes_mempool_from_network();
+        network
+    }
 
+    fn from_persisted_state_v1(state: PersistedNetworkStateV1) -> Result<Self, String> {
         let mut nodes = Vec::new();
         for persisted_node in state.nodes {
             let is_validator = Some(persisted_node.id) == state.current_validator_id;
@@ -140,6 +220,7 @@ impl BlockchainNetwork {
                 persisted_node.blockchain,
                 &persisted_node.wallet_private_key_hex,
                 persisted_node.mining_reward,
+                None,
             ) else {
                 return Err(format!(
                     "Node {} için wallet state yüklenemedi",
@@ -152,30 +233,74 @@ impl BlockchainNetwork {
             nodes.push(node);
         }
 
-        let mut network = Self::new();
-        network.nodes = nodes;
-        network.mempool.clear();
-        network.mempool_policy.clear();
-        network.mempool_spent_outpoints.clear();
-        network.mempool_total_bytes = 0;
-        network.mempool_sequence_counter = 0;
-        network.max_mempool_bytes = state.max_mempool_bytes;
-        network.min_fee_rate_sat_per_kb = state.min_fee_rate_sat_per_kb;
-        network.replacement_increment_sat_per_kb = state.replacement_increment_sat_per_kb;
-        network.current_validator_id = state.current_validator_id;
-        network.difficulty = state.difficulty;
-        network.block_time = state.block_time;
-        network.last_block_time = state.last_block_time;
-        network.mining_active = false;
-        network.mining_thread = None;
-        network.stop_sender = None;
-        network.reconcile_network_mempool_after_chain_sync();
+        Ok(Self::build_network_from_loaded_state(
+            nodes,
+            state.current_validator_id,
+            state.difficulty,
+            state.block_time,
+            state.last_block_time,
+            state.max_mempool_bytes,
+            state.min_fee_rate_sat_per_kb,
+            state.replacement_increment_sat_per_kb,
+            Vec::new(),
+        ))
+    }
 
-        Ok(network)
+    fn from_persisted_state_v2(state: PersistedNetworkStateV2) -> Result<Self, String> {
+        let mut nodes = Vec::new();
+        for persisted_node in state.nodes {
+            let is_validator = Some(persisted_node.id) == state.current_validator_id;
+            let expected_snapshot_checksum = persisted_node.utxo_snapshot_checksum.clone();
+            let snapshot_checksum = Self::utxo_snapshot_checksum(&persisted_node.utxo_snapshot);
+            let utxo_snapshot = if snapshot_checksum == expected_snapshot_checksum {
+                Some(persisted_node.utxo_snapshot)
+            } else {
+                None
+            };
+
+            let Some(mut node) = Node::from_persisted_state(
+                persisted_node.id,
+                persisted_node.connections,
+                is_validator,
+                persisted_node.blockchain,
+                &persisted_node.wallet_private_key_hex,
+                persisted_node.mining_reward,
+                utxo_snapshot,
+            ) else {
+                return Err(format!(
+                    "Node {} için wallet state yüklenemedi",
+                    persisted_node.id
+                ));
+            };
+
+            if !node.is_chain_valid_with_difficulty(&node.blockchain, state.difficulty) {
+                return Err(format!("Node {} zinciri geçersiz", node.id));
+            }
+
+            // Snapshot doğrulaması başarısızsa güvenli yol olarak zincirden yeniden inşa et.
+            if snapshot_checksum != expected_snapshot_checksum {
+                node.rebuild_utxo_set();
+                node.wallet.rebuild_from_utxo_set(&node.utxo_set);
+            }
+
+            nodes.push(node);
+        }
+
+        Ok(Self::build_network_from_loaded_state(
+            nodes,
+            state.current_validator_id,
+            state.difficulty,
+            state.block_time,
+            state.last_block_time,
+            state.max_mempool_bytes,
+            state.min_fee_rate_sat_per_kb,
+            state.replacement_increment_sat_per_kb,
+            state.mempool,
+        ))
     }
 
     pub fn save_to_disk(&self, path: &str) -> Result<(), String> {
-        let state = self.to_persisted_state();
+        let state = self.to_persisted_state_v2();
         let state_json = serde_json::to_vec_pretty(&state).map_err(|err| err.to_string())?;
         let path = Path::new(path);
 
@@ -199,9 +324,26 @@ impl BlockchainNetwork {
     pub fn load_from_disk(path: &str) -> Result<Self, String> {
         let path = Path::new(path);
         let state_json = fs::read(path).map_err(|err| err.to_string())?;
-        let state: PersistedNetworkState =
+        let raw_value: serde_json::Value =
             serde_json::from_slice(&state_json).map_err(|err| err.to_string())?;
-        Self::from_persisted_state(state)
+        let schema_version = raw_value
+            .get("schema_version")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(Self::PERSISTENCE_SCHEMA_VERSION_V1 as u64) as u32;
+
+        match schema_version {
+            Self::PERSISTENCE_SCHEMA_VERSION_V1 => {
+                let state: PersistedNetworkStateV1 =
+                    serde_json::from_value(raw_value).map_err(|err| err.to_string())?;
+                Self::from_persisted_state_v1(state)
+            }
+            Self::PERSISTENCE_SCHEMA_VERSION_V2 => {
+                let state: PersistedNetworkStateV2 =
+                    serde_json::from_value(raw_value).map_err(|err| err.to_string())?;
+                Self::from_persisted_state_v2(state)
+            }
+            _ => Err(format!("Desteklenmeyen state sürümü: {}", schema_version)),
+        }
     }
 
     // Otomatik madencilik işlemini başlat
@@ -537,6 +679,9 @@ impl BlockchainNetwork {
             self.mempool_policy.clear();
             self.mempool_spent_outpoints.clear();
             self.mempool_total_bytes = 0;
+            for node in &mut self.nodes {
+                node.mempool.clear();
+            }
             return;
         };
 
@@ -545,6 +690,18 @@ impl BlockchainNetwork {
             .retain(|tx| !tx.is_coinbase() && reference_node.verify_transaction(tx));
         self.rebuild_mempool_policy_from_utxo_set(&reference_utxo_set);
         self.trim_mempool_to_limit();
+        self.sync_nodes_mempool_from_network();
+    }
+
+    fn sync_nodes_mempool_from_network(&mut self) {
+        let network_mempool = self.mempool.clone();
+        for node in &mut self.nodes {
+            node.mempool = network_mempool
+                .iter()
+                .filter(|tx| node.verify_transaction(tx))
+                .cloned()
+                .collect();
+        }
     }
 
     fn mine_coinbase_extension(

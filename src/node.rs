@@ -146,6 +146,7 @@ impl Node {
         blockchain: Vec<Block>,
         wallet_private_key_hex: &str,
         mining_reward: u64,
+        utxo_snapshot: Option<Vec<UTXO>>,
     ) -> Option<Self> {
         let wallet = Wallet::from_private_key_hex(wallet_private_key_hex)?;
         let mut node = Node {
@@ -158,9 +159,21 @@ impl Node {
             utxo_set: HashMap::new(),
             mining_reward,
         };
-        node.rebuild_utxo_set();
+
+        if let Some(snapshot) = utxo_snapshot {
+            node.utxo_set = snapshot
+                .into_iter()
+                .map(|utxo| (utxo.outpoint.clone(), utxo))
+                .collect();
+        } else {
+            node.rebuild_utxo_set();
+        }
         node.wallet.rebuild_from_utxo_set(&node.utxo_set);
         Some(node)
+    }
+
+    pub fn utxo_snapshot(&self) -> Vec<UTXO> {
+        self.utxo_set.values().cloned().collect()
     }
 
     // Cüzdan adresini almak için fonksiyon

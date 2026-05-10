@@ -340,6 +340,9 @@ fn main() {
 
                     if let Some(_) = tx {
                         println!("İşlem oluşturuldu ve mempool'a eklendi");
+                        if let Err(err) = network_lock.save_to_disk(state_path) {
+                            println!("State diske yazılamadı: {}", err);
+                        }
                     } else {
                         println!("İşlem oluşturulamadı! Bakiye yetersiz olabilir.");
                     }
