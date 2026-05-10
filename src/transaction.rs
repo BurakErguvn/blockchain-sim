@@ -174,6 +174,33 @@ impl Transaction {
         total_input.checked_sub(total_output)
     }
 
+    // İşlem boyutunu yaklaşık olarak hesapla
+    pub fn estimated_size_bytes(&self) -> usize {
+        let mut size = 16; // temel üstveri
+
+        for input in &self.inputs {
+            size += input.previous_output.txid.len();
+            size += 8; // vout
+            size += input.signature.len();
+            size += input.public_key.len();
+            size += input.sender_address.len();
+        }
+
+        for output in &self.outputs {
+            size += 8; // amount
+            size += output.recipient_address.len();
+        }
+
+        size.max(1)
+    }
+
+    // Fee-rate (sat/kB) hesapla
+    pub fn calculate_fee_rate_sat_per_kb(&self, utxo_set: &HashMap<OutPoint, UTXO>) -> Option<u64> {
+        let fee = self.calculate_fee(utxo_set)?;
+        let size = self.estimated_size_bytes() as u64;
+        Some(fee.saturating_mul(1000) / size.max(1))
+    }
+
     // İşlemin geçerli olup olmadığını kontrol et
     pub fn is_valid(&self, utxo_set: &HashMap<OutPoint, UTXO>) -> bool {
         if self.outputs.is_empty() {

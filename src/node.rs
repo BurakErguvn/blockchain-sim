@@ -96,8 +96,20 @@ impl Node {
         recipient_address: &str,
         amount: u64,
     ) -> Option<Transaction> {
+        self.create_transaction_with_fee(recipient_address, amount, 1_000)
+    }
+
+    pub fn create_transaction_with_fee(
+        &mut self,
+        recipient_address: &str,
+        amount: u64,
+        fee: u64,
+    ) -> Option<Transaction> {
         // Cüzdanın işlem oluşturmasını iste
-        if let Some(transaction) = self.wallet.create_transaction(recipient_address, amount) {
+        if let Some(transaction) =
+            self.wallet
+                .create_transaction_with_fee(recipient_address, amount, fee)
+        {
             // İşlemi doğrula
             if self.verify_transaction(&transaction) {
                 // İşlemi mempool'a ekle
@@ -221,8 +233,17 @@ impl Node {
         // Mempool'dan geçerli işlemleri seç
         let mut selected_tx_indices = Vec::new();
         let mut working_utxo_set = self.utxo_set.clone();
+        let mut ordered_mempool = self.mempool.clone();
+        ordered_mempool.sort_by(|a, b| {
+            let a_rate = a.calculate_fee_rate_sat_per_kb(&self.utxo_set).unwrap_or(0);
+            let b_rate = b.calculate_fee_rate_sat_per_kb(&self.utxo_set).unwrap_or(0);
+            b_rate
+                .cmp(&a_rate)
+                .then_with(|| a.timestamp.cmp(&b.timestamp))
+                .then_with(|| a.id.cmp(&b.id))
+        });
 
-        for (i, tx) in self.mempool.iter().enumerate() {
+        for tx in &ordered_mempool {
             if selected_transactions.len() >= transaction_limit.saturating_sub(1) {
                 break;
             }
@@ -231,7 +252,13 @@ impl Node {
                 let tx_fee = tx.calculate_fee(&working_utxo_set)?;
                 total_fees = total_fees.checked_add(tx_fee)?;
                 selected_transactions.push(tx.clone());
-                selected_tx_indices.push(i);
+                if let Some(i) = self
+                    .mempool
+                    .iter()
+                    .position(|original| original.id == tx.id)
+                {
+                    selected_tx_indices.push(i);
+                }
                 Self::apply_transaction_to_utxo_set(tx, &mut working_utxo_set);
             }
         }

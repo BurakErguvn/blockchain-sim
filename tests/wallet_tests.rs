@@ -32,7 +32,7 @@ fn yeterli_bakiyede_para_ustu_cikisi_olusmali() {
     assert_eq!(tx.inputs.len(), 1);
     assert_eq!(tx.outputs.len(), 2);
     assert_eq!(tx.outputs[0].amount, 3_000);
-    assert_eq!(tx.outputs[1].amount, 2_000);
+    assert_eq!(tx.outputs[1].amount, 1_000);
 }
 
 #[test]
