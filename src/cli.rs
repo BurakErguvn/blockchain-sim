@@ -6,7 +6,8 @@ use rustyline::hint::{Hinter, HistoryHinter};
 use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
 use rustyline::{Context, Editor, Helper};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use strsim::jaro_winkler;
@@ -60,6 +61,18 @@ pub enum Command {
     Persistence {
         #[command(subcommand)]
         command: PersistenceCommand,
+    },
+    Scenario {
+        #[command(subcommand)]
+        command: ScenarioCommand,
+    },
+    Alias {
+        #[command(subcommand)]
+        command: AliasCommand,
+    },
+    Macro {
+        #[command(subcommand)]
+        command: MacroCommand,
     },
 }
 
@@ -127,6 +140,47 @@ pub enum PersistenceCommand {
     },
 }
 
+#[derive(Debug, Subcommand)]
+pub enum ScenarioCommand {
+    List,
+    Run {
+        name: String,
+        #[arg(long, default_value_t = 0)]
+        primary: usize,
+        #[arg(long, default_value_t = 1)]
+        secondary: usize,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AliasCommand {
+    List,
+    Add {
+        name: String,
+        #[arg(required = true, num_args = 1..)]
+        expansion: Vec<String>,
+    },
+    Remove {
+        name: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MacroCommand {
+    List,
+    Add {
+        name: String,
+        #[arg(long = "cmd", required = true, num_args = 1..)]
+        commands: Vec<String>,
+    },
+    Remove {
+        name: String,
+    },
+    Run {
+        name: String,
+    },
+}
+
 #[derive(Serialize)]
 struct StatusView {
     node_count: usize,
@@ -173,6 +227,16 @@ struct ActionResult {
     message: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct AliasStore {
+    aliases: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct MacroStore {
+    macros: BTreeMap<String, Vec<String>>,
+}
+
 const ROOT_COMMANDS: &[&str] = &[
     "repl",
     "init",
@@ -183,23 +247,24 @@ const ROOT_COMMANDS: &[&str] = &[
     "mempool",
     "mine",
     "persistence",
+    "scenario",
+    "alias",
+    "macro",
     "help",
     "exit",
     "quit",
 ];
+const MAX_MACRO_DEPTH: usize = 5;
 
 struct CliReplHelper {
-    commands: Vec<String>,
+    alias_names: Vec<String>,
     hinter: HistoryHinter,
 }
 
 impl CliReplHelper {
-    fn new() -> Self {
+    fn new(alias_names: Vec<String>) -> Self {
         Self {
-            commands: ROOT_COMMANDS
-                .iter()
-                .map(|command| command.to_string())
-                .collect(),
+            alias_names,
             hinter: HistoryHinter::new(),
         }
     }
@@ -227,21 +292,22 @@ impl Completer for CliReplHelper {
         _ctx: &Context<'_>,
     ) -> Result<(usize, Vec<Self::Candidate>), ReadlineError> {
         let input = &line[..pos];
-        if input.contains(' ') {
-            return Ok((pos, Vec::new()));
-        }
-
-        let matches = self
-            .commands
-            .iter()
-            .filter(|command| command.starts_with(input))
-            .map(|command| Pair {
-                display: command.clone(),
-                replacement: command.clone(),
+        let cursor_start = input
+            .rfind(char::is_whitespace)
+            .map(|idx| idx + 1)
+            .unwrap_or(0);
+        let needle = &input[cursor_start..];
+        let candidates = completion_candidates(input, &self.alias_names);
+        let matches = candidates
+            .into_iter()
+            .filter(|candidate| candidate.starts_with(needle))
+            .map(|candidate| Pair {
+                display: candidate.clone(),
+                replacement: candidate,
             })
             .collect();
 
-        Ok((0, matches))
+        Ok((cursor_start, matches))
     }
 }
 
@@ -299,6 +365,106 @@ fn save_state(network: &BlockchainNetwork, path: &str) -> Result<(), String> {
         .map_err(|err| format!("State kaydedilemedi ({}): {}", path, err))
 }
 
+fn alias_file_path(state_path: &str) -> String {
+    let state_path = Path::new(state_path);
+    let base_dir = state_path.parent().unwrap_or_else(|| Path::new("."));
+    base_dir
+        .join(".sim_cli_aliases.json")
+        .to_string_lossy()
+        .to_string()
+}
+
+fn macro_file_path(state_path: &str) -> String {
+    let state_path = Path::new(state_path);
+    let base_dir = state_path.parent().unwrap_or_else(|| Path::new("."));
+    base_dir
+        .join(".sim_cli_macros.json")
+        .to_string_lossy()
+        .to_string()
+}
+
+fn load_alias_store(state_path: &str) -> Result<AliasStore, String> {
+    let file_path = alias_file_path(state_path);
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Ok(AliasStore::default());
+    }
+    let content = fs::read(path).map_err(|err| err.to_string())?;
+    serde_json::from_slice(&content).map_err(|err| err.to_string())
+}
+
+fn save_alias_store(state_path: &str, aliases: &AliasStore) -> Result<(), String> {
+    let file_path = alias_file_path(state_path);
+    if let Some(parent) = Path::new(&file_path).parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let content = serde_json::to_vec_pretty(aliases).map_err(|err| err.to_string())?;
+    fs::write(file_path, content).map_err(|err| err.to_string())
+}
+
+fn load_macro_store(state_path: &str) -> Result<MacroStore, String> {
+    let file_path = macro_file_path(state_path);
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Ok(MacroStore::default());
+    }
+    let content = fs::read(path).map_err(|err| err.to_string())?;
+    serde_json::from_slice(&content).map_err(|err| err.to_string())
+}
+
+fn save_macro_store(state_path: &str, macros: &MacroStore) -> Result<(), String> {
+    let file_path = macro_file_path(state_path);
+    if let Some(parent) = Path::new(&file_path).parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let content = serde_json::to_vec_pretty(macros).map_err(|err| err.to_string())?;
+    fs::write(file_path, content).map_err(|err| err.to_string())
+}
+
+fn namespaced_subcommands(root: &str) -> &'static [&'static str] {
+    match root {
+        "nodes" => &["list", "show"],
+        "chain" => &["tip", "show"],
+        "tx" => &["create"],
+        "mempool" => &["list"],
+        "mine" => &["once"],
+        "persistence" => &["info", "save", "load"],
+        "scenario" => &["list", "run"],
+        "alias" => &["list", "add", "remove"],
+        "macro" => &["list", "add", "remove", "run"],
+        _ => &[],
+    }
+}
+
+fn completion_candidates(input: &str, alias_names: &[String]) -> Vec<String> {
+    let has_trailing_space = input.chars().last().is_some_and(char::is_whitespace);
+    let mut tokens: Vec<&str> = input.split_whitespace().collect();
+    if has_trailing_space {
+        tokens.push("");
+    }
+
+    if tokens.is_empty() || tokens[0].is_empty() {
+        let mut commands: Vec<String> = ROOT_COMMANDS.iter().map(|s| (*s).to_string()).collect();
+        commands.extend(alias_names.iter().cloned());
+        commands.sort();
+        commands.dedup();
+        return commands;
+    }
+
+    if tokens.len() == 1 {
+        let mut commands: Vec<String> = ROOT_COMMANDS.iter().map(|s| (*s).to_string()).collect();
+        commands.extend(alias_names.iter().cloned());
+        commands.sort();
+        commands.dedup();
+        return commands;
+    }
+
+    namespaced_subcommands(tokens[0])
+        .iter()
+        .map(|command| (*command).to_string())
+        .collect()
+}
+
 fn history_file_path(state_path: &str) -> String {
     let state_path = Path::new(state_path);
     let base_dir = state_path.parent().unwrap_or_else(|| Path::new("."));
@@ -309,18 +475,26 @@ fn history_file_path(state_path: &str) -> String {
 }
 
 fn print_repl_help() {
-    println!("Komutlar: init, status, nodes, chain, tx, mempool, mine, persistence");
+    println!(
+        "Komutlar: init, status, nodes, chain, tx, mempool, mine, persistence, scenario, alias, macro"
+    );
+    println!("Macro kısayolu: !<macro_adi>");
     println!("Yardım: help");
     println!("Çıkış: exit | quit");
 }
 
-fn suggest_root_commands(token: &str) -> Vec<String> {
-    let mut candidates: Vec<(f64, String)> = ROOT_COMMANDS
+fn suggest_root_commands(token: &str, alias_names: &[String]) -> Vec<String> {
+    let mut pool: Vec<String> = ROOT_COMMANDS.iter().map(|command| (*command).to_string()).collect();
+    pool.extend(alias_names.iter().cloned());
+    pool.sort();
+    pool.dedup();
+
+    let mut candidates: Vec<(f64, String)> = pool
         .iter()
         .filter_map(|command| {
             let score = jaro_winkler(command, token);
             if score >= 0.75 {
-                Some((score, (*command).to_string()))
+                Some((score, command.to_string()))
             } else {
                 None
             }
@@ -330,7 +504,23 @@ fn suggest_root_commands(token: &str) -> Vec<String> {
     candidates.into_iter().map(|(_, command)| command).collect()
 }
 
-fn execute_command(state_path: &str, json: bool, command: Command) -> Result<(), String> {
+fn expand_alias_tokens(tokens: Vec<String>, alias_store: &AliasStore) -> Result<Vec<String>, String> {
+    if let Some(first) = tokens.first() {
+        if let Some(expansion) = alias_store.aliases.get(first) {
+            let mut expanded = shell_words::split(expansion).map_err(|err| err.to_string())?;
+            expanded.extend(tokens.into_iter().skip(1));
+            return Ok(expanded);
+        }
+    }
+    Ok(tokens)
+}
+
+fn execute_command(
+    state_path: &str,
+    json: bool,
+    command: Command,
+    macro_depth: usize,
+) -> Result<(), String> {
     match command {
         Command::Repl => run_repl(state_path, json),
         Command::Init(args) => {
@@ -685,6 +875,223 @@ fn execute_command(state_path: &str, json: bool, command: Command) -> Result<(),
                 Ok(())
             }
         },
+        Command::Scenario { command } => match command {
+            ScenarioCommand::List => {
+                #[derive(Serialize)]
+                struct ScenarioList {
+                    scenarios: Vec<&'static str>,
+                }
+                let result = ScenarioList {
+                    scenarios: vec!["quickstart", "fork-reorg"],
+                };
+                if json {
+                    print_json(&result)?;
+                } else {
+                    println!("Kullanılabilir senaryolar:");
+                    for scenario in &result.scenarios {
+                        println!("- {}", scenario);
+                    }
+                }
+                Ok(())
+            }
+            ScenarioCommand::Run {
+                name,
+                primary,
+                secondary,
+            } => {
+                match name.as_str() {
+                    "quickstart" => {
+                        let mut network = if Path::new(state_path).exists() {
+                            load_state(state_path)?
+                        } else {
+                            bootstrap_network(&InitArgs {
+                                nodes: 5,
+                                difficulty: 2,
+                                block_time: 60,
+                                force: true,
+                            })?
+                        };
+                        if network.current_val_id().is_none() {
+                            network.select_random_validator();
+                        }
+                        let _ = network.mine_block().ok_or("Senaryo için blok üretilemedi")?;
+                        save_state(&network, state_path)?;
+                        let result = ActionResult {
+                            message: "quickstart senaryosu tamamlandı".to_string(),
+                        };
+                        if json {
+                            print_json(&result)?;
+                        } else {
+                            println!("{}", result.message);
+                        }
+                        Ok(())
+                    }
+                    "fork-reorg" => {
+                        let mut network = load_state(state_path)?;
+                        let reorg_depth = network
+                            .simulate_fork_and_reorg(primary, secondary)
+                            .map_err(|err| format!("Senaryo hatası: {}", err))?;
+                        save_state(&network, state_path)?;
+                        #[derive(Serialize)]
+                        struct ScenarioRunResult {
+                            scenario: String,
+                            reorg_depth: usize,
+                        }
+                        let result = ScenarioRunResult {
+                            scenario: name,
+                            reorg_depth,
+                        };
+                        if json {
+                            print_json(&result)?;
+                        } else {
+                            println!(
+                                "fork-reorg tamamlandı. Reorg depth: {}",
+                                result.reorg_depth
+                            );
+                        }
+                        Ok(())
+                    }
+                    _ => Err(format!("Bilinmeyen senaryo: {}", name)),
+                }
+            }
+        },
+        Command::Alias { command } => match command {
+            AliasCommand::List => {
+                let alias_store = load_alias_store(state_path)?;
+                if json {
+                    print_json(&alias_store.aliases)?;
+                } else if alias_store.aliases.is_empty() {
+                    println!("Alias tanımı yok.");
+                } else {
+                    for (name, expansion) in alias_store.aliases {
+                        println!("{} -> {}", name, expansion);
+                    }
+                }
+                Ok(())
+            }
+            AliasCommand::Add { name, expansion } => {
+                if ROOT_COMMANDS.iter().any(|command| *command == name) {
+                    return Err("Alias adı yerleşik komutlarla çakışamaz".to_string());
+                }
+                let mut alias_store = load_alias_store(state_path)?;
+                alias_store.aliases.insert(name.clone(), expansion.join(" "));
+                save_alias_store(state_path, &alias_store)?;
+                let result = ActionResult {
+                    message: format!("Alias eklendi: {}", name),
+                };
+                if json {
+                    print_json(&result)?;
+                } else {
+                    println!("{}", result.message);
+                }
+                Ok(())
+            }
+            AliasCommand::Remove { name } => {
+                let mut alias_store = load_alias_store(state_path)?;
+                if alias_store.aliases.remove(&name).is_none() {
+                    return Err(format!("Alias bulunamadı: {}", name));
+                }
+                save_alias_store(state_path, &alias_store)?;
+                let result = ActionResult {
+                    message: format!("Alias silindi: {}", name),
+                };
+                if json {
+                    print_json(&result)?;
+                } else {
+                    println!("{}", result.message);
+                }
+                Ok(())
+            }
+        },
+        Command::Macro { command } => match command {
+            MacroCommand::List => {
+                let macros = load_macro_store(state_path)?;
+                if json {
+                    print_json(&macros.macros)?;
+                } else if macros.macros.is_empty() {
+                    println!("Macro tanımı yok.");
+                } else {
+                    for (name, commands) in macros.macros {
+                        println!("{}:", name);
+                        for command in commands {
+                            println!("  - {}", command);
+                        }
+                    }
+                }
+                Ok(())
+            }
+            MacroCommand::Add { name, commands } => {
+                if commands.is_empty() {
+                    return Err("Macro en az bir komut içermeli".to_string());
+                }
+                let mut macros = load_macro_store(state_path)?;
+                macros.macros.insert(name.clone(), commands);
+                save_macro_store(state_path, &macros)?;
+                let result = ActionResult {
+                    message: format!("Macro eklendi: {}", name),
+                };
+                if json {
+                    print_json(&result)?;
+                } else {
+                    println!("{}", result.message);
+                }
+                Ok(())
+            }
+            MacroCommand::Remove { name } => {
+                let mut macros = load_macro_store(state_path)?;
+                if macros.macros.remove(&name).is_none() {
+                    return Err(format!("Macro bulunamadı: {}", name));
+                }
+                save_macro_store(state_path, &macros)?;
+                let result = ActionResult {
+                    message: format!("Macro silindi: {}", name),
+                };
+                if json {
+                    print_json(&result)?;
+                } else {
+                    println!("{}", result.message);
+                }
+                Ok(())
+            }
+            MacroCommand::Run { name } => {
+                if macro_depth >= MAX_MACRO_DEPTH {
+                    return Err("Maksimum macro çağrı derinliğine ulaşıldı".to_string());
+                }
+                let macros = load_macro_store(state_path)?;
+                let Some(commands) = macros.macros.get(&name) else {
+                    return Err(format!("Macro bulunamadı: {}", name));
+                };
+                for command_line in commands {
+                    let mut tokens = shell_words::split(command_line).map_err(|err| err.to_string())?;
+                    let alias_store = load_alias_store(state_path)?;
+                    tokens = expand_alias_tokens(tokens, &alias_store)?;
+                    let mut args = vec![
+                        "sim-cli".to_string(),
+                        "--state-path".to_string(),
+                        state_path.to_string(),
+                    ];
+                    if json {
+                        args.push("--json".to_string());
+                    }
+                    args.extend(tokens);
+
+                    let parsed = Cli::try_parse_from(args).map_err(|err| err.to_string())?;
+                    let Some(command) = parsed.command else {
+                        continue;
+                    };
+                    execute_command(&parsed.state_path, parsed.json, command, macro_depth + 1)?;
+                }
+                let result = ActionResult {
+                    message: format!("Macro çalıştırıldı: {}", name),
+                };
+                if json {
+                    print_json(&result)?;
+                } else {
+                    println!("{}", result.message);
+                }
+                Ok(())
+            }
+        },
     }
 }
 
@@ -694,9 +1101,11 @@ fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|err| err.to_string())?;
     }
 
+    let initial_alias_store = load_alias_store(state_path).unwrap_or_default();
+    let alias_names: Vec<String> = initial_alias_store.aliases.keys().cloned().collect();
     let mut editor: Editor<CliReplHelper, DefaultHistory> =
         Editor::new().map_err(|err| err.to_string())?;
-    editor.set_helper(Some(CliReplHelper::new()));
+    editor.set_helper(Some(CliReplHelper::new(alias_names)));
     let _ = editor.load_history(&history_path);
 
     println!("sim-cli repl başlatıldı. Yardım için 'help', çıkış için 'exit'.");
@@ -717,10 +1126,27 @@ fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
                     continue;
                 }
 
-                let tokens = match shell_words::split(line) {
+                let mut tokens = match shell_words::split(line) {
                     Ok(tokens) => tokens,
                     Err(err) => {
                         println!("Parse hatası: {}", err);
+                        continue;
+                    }
+                };
+
+                if let Some(first) = tokens.first_mut() {
+                    if first.starts_with('!') && first.len() > 1 {
+                        let macro_name = first.trim_start_matches('!').to_string();
+                        tokens = vec!["macro".to_string(), "run".to_string(), macro_name];
+                    }
+                }
+
+                let alias_store = load_alias_store(state_path).unwrap_or_default();
+                let alias_names: Vec<String> = alias_store.aliases.keys().cloned().collect();
+                tokens = match expand_alias_tokens(tokens, &alias_store) {
+                    Ok(tokens) => tokens,
+                    Err(err) => {
+                        println!("Alias açılım hatası: {}", err);
                         continue;
                     }
                 };
@@ -742,17 +1168,21 @@ fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
                         }
                         Some(command) => {
                             if let Err(err) =
-                                execute_command(&parsed.state_path, parsed.json, command)
+                                execute_command(&parsed.state_path, parsed.json, command, 0)
                             {
                                 println!("Hata: {}", err);
                             }
+                            let refreshed_alias_store = load_alias_store(state_path).unwrap_or_default();
+                            let refreshed_alias_names =
+                                refreshed_alias_store.aliases.keys().cloned().collect();
+                            editor.set_helper(Some(CliReplHelper::new(refreshed_alias_names)));
                         }
                         None => print_repl_help(),
                     },
                     Err(err) => {
                         println!("{}", err);
                         if let Some(first) = tokens.first() {
-                            let suggestions = suggest_root_commands(first);
+                            let suggestions = suggest_root_commands(first, &alias_names);
                             if !suggestions.is_empty() {
                                 println!("Öneri: {}", suggestions.join(", "));
                             }
@@ -771,14 +1201,18 @@ fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
 
 pub fn run(cli: Cli) -> Result<(), String> {
     match cli.command {
-        Some(command) => execute_command(&cli.state_path, cli.json, command),
+        Some(command) => execute_command(&cli.state_path, cli.json, command, 0),
         None => run_repl(&cli.state_path, cli.json),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::coin_to_satoshi;
+    use super::{
+        coin_to_satoshi, completion_candidates, expand_alias_tokens, suggest_root_commands,
+        AliasStore,
+    };
+    use std::collections::BTreeMap;
 
     #[test]
     fn coin_to_satoshi_pozitif_degerde_calismali() {
@@ -789,5 +1223,34 @@ mod tests {
     fn coin_to_satoshi_sifir_ve_negatifte_hata_vermeli() {
         assert!(coin_to_satoshi(0.0).is_err());
         assert!(coin_to_satoshi(-1.0).is_err());
+    }
+
+    #[test]
+    fn alias_genislemesi_ilk_token_uzerinden_calismali() {
+        let mut store = AliasStore::default();
+        store
+            .aliases
+            .insert("st".to_string(), "status".to_string());
+        let tokens = vec!["st".to_string()];
+        let expanded = expand_alias_tokens(tokens, &store).expect("alias genislemeli");
+        assert_eq!(expanded, vec!["status".to_string()]);
+    }
+
+    #[test]
+    fn namespaced_completion_alt_komutlari_dondurmeli() {
+        let alias_names: Vec<String> = Vec::new();
+        let candidates = completion_candidates("nodes ", &alias_names);
+        assert!(candidates.contains(&"list".to_string()));
+        assert!(candidates.contains(&"show".to_string()));
+    }
+
+    #[test]
+    fn root_suggestion_aliaslari_da_degerlendirmeli() {
+        let mut aliases = BTreeMap::new();
+        aliases.insert("st".to_string(), "status".to_string());
+        let alias_names: Vec<String> = aliases.keys().cloned().collect();
+        let suggestions = suggest_root_commands("st", &alias_names);
+        assert!(suggestions.contains(&"st".to_string()));
+        assert!(suggestions.contains(&"status".to_string()));
     }
 }
