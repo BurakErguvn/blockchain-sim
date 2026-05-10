@@ -1,3 +1,4 @@
+pub mod api;
 pub mod block;
 pub mod cli;
 pub mod network;
