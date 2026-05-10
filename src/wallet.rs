@@ -16,6 +16,8 @@ pub struct Wallet {
 }
 
 impl Wallet {
+    const DEFAULT_TRANSACTION_FEE: u64 = 1_000;
+
     pub fn new() -> Self {
         // 1. Özel anahtar oluştur (256 bit rastgele sayı)
         let secp = Secp256k1::new();
@@ -179,8 +181,20 @@ impl Wallet {
 
     // Yeni bir işlem oluştur
     pub fn create_transaction(&self, recipient_address: &str, amount: u64) -> Option<Transaction> {
+        self.create_transaction_with_fee(recipient_address, amount, Self::DEFAULT_TRANSACTION_FEE)
+    }
+
+    // Belirli bir fee ile işlem oluştur
+    pub fn create_transaction_with_fee(
+        &self,
+        recipient_address: &str,
+        amount: u64,
+        fee: u64,
+    ) -> Option<Transaction> {
+        let required_total = amount.checked_add(fee)?;
+
         // Bakiye kontrolü
-        if amount > self.balance {
+        if required_total > self.balance {
             // Yetersiz bakiye
             return None;
         }
@@ -193,7 +207,7 @@ impl Wallet {
             selected_utxos.push(utxo.clone());
             selected_amount += utxo.amount;
 
-            if selected_amount >= amount {
+            if selected_amount >= required_total {
                 break;
             }
         }
@@ -220,7 +234,7 @@ impl Wallet {
         });
 
         // Para üstü (eğer varsa)
-        let change = selected_amount - amount;
+        let change = selected_amount - required_total;
         if change > 0 {
             outputs.push(TxOutput {
                 amount: change,

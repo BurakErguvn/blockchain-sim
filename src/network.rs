@@ -1,5 +1,5 @@
 use rand::Rng;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -7,12 +7,26 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 // Gerekli modülleri kullan
 use crate::block::Block;
 use crate::node::Node;
-use crate::transaction::{OutPoint, Transaction};
+use crate::transaction::{OutPoint, Transaction, UTXO};
+
+#[derive(Clone, Debug)]
+struct MempoolTxInfo {
+    size_bytes: usize,
+    fee_sat: u64,
+    fee_rate_sat_per_kb: u64,
+    arrival_sequence: u64,
+}
 
 pub struct BlockchainNetwork {
     pub nodes: Vec<Node>,
     pub mempool: Vec<Transaction>,
     pub mempool_spent_outpoints: HashMap<OutPoint, String>,
+    mempool_policy: HashMap<String, MempoolTxInfo>,
+    mempool_sequence_counter: u64,
+    mempool_total_bytes: usize,
+    pub max_mempool_bytes: usize,
+    pub min_fee_rate_sat_per_kb: u64,
+    pub replacement_increment_sat_per_kb: u64,
     pub current_validator_id: Option<usize>,
     pub difficulty: usize,
     pub block_time: u64,      // Saniye cinsinden blok oluşturma süresi
@@ -23,6 +37,10 @@ pub struct BlockchainNetwork {
 }
 
 impl BlockchainNetwork {
+    const DEFAULT_MAX_MEMPOOL_BYTES: usize = 300 * 1024 * 1024;
+    const DEFAULT_MIN_FEE_RATE_SAT_PER_KB: u64 = 1_000;
+    const DEFAULT_REPLACEMENT_INCREMENT_SAT_PER_KB: u64 = 100;
+
     pub fn new() -> Self {
         // Şu anki zamanı al
         let now = SystemTime::now()
@@ -34,6 +52,12 @@ impl BlockchainNetwork {
             nodes: Vec::new(),
             mempool: Vec::new(),
             mempool_spent_outpoints: HashMap::new(),
+            mempool_policy: HashMap::new(),
+            mempool_sequence_counter: 0,
+            mempool_total_bytes: 0,
+            max_mempool_bytes: Self::DEFAULT_MAX_MEMPOOL_BYTES,
+            min_fee_rate_sat_per_kb: Self::DEFAULT_MIN_FEE_RATE_SAT_PER_KB,
+            replacement_increment_sat_per_kb: Self::DEFAULT_REPLACEMENT_INCREMENT_SAT_PER_KB,
             current_validator_id: None,
             difficulty: 2,        // Varsayılan zorluk seviyesi
             block_time: 10,       // Varsayılan olarak 10 saniye
@@ -165,15 +189,27 @@ impl BlockchainNetwork {
         recipient_address: &str,
         amount: u64,
     ) -> Option<Transaction> {
+        self.create_transaction_with_fee(sender_id, recipient_address, amount, 1_000)
+    }
+
+    pub fn create_transaction_with_fee(
+        &mut self,
+        sender_id: usize,
+        recipient_address: &str,
+        amount: u64,
+        fee: u64,
+    ) -> Option<Transaction> {
         if sender_id >= self.nodes.len() {
             None
         } else {
-            let tx = {
+            let (tx, sender_utxo_snapshot) = {
                 let sender_node = self.nodes.get_mut(sender_id)?;
-                sender_node.create_transaction(recipient_address, amount)?
+                let tx = sender_node.create_transaction_with_fee(recipient_address, amount, fee)?;
+                (tx, sender_node.utxo_set.clone())
             };
 
-            if self.has_mempool_conflict(&tx) {
+            let tx_info = Self::calculate_tx_info(&tx, &sender_utxo_snapshot, self.next_mempool_sequence())?;
+            if tx_info.fee_rate_sat_per_kb < self.min_fee_rate_sat_per_kb {
                 if let Some(sender_node) = self.nodes.get_mut(sender_id) {
                     sender_node
                         .mempool
@@ -182,9 +218,33 @@ impl BlockchainNetwork {
                 return None;
             }
 
-            // İşlemi ağ mempool'una ekle
-            self.track_transaction_inputs(&tx);
-            self.mempool.push(tx.clone());
+            let conflicting_tx_ids = self.collect_conflicting_tx_ids(&tx);
+            if !conflicting_tx_ids.is_empty() {
+                if !self.can_replace_conflicts(tx_info.fee_rate_sat_per_kb, &conflicting_tx_ids) {
+                    if let Some(sender_node) = self.nodes.get_mut(sender_id) {
+                        sender_node
+                            .mempool
+                            .retain(|existing_tx| existing_tx.id != tx.id);
+                    }
+                    return None;
+                }
+
+                for conflict_id in conflicting_tx_ids {
+                    self.remove_transaction_from_mempool(&conflict_id);
+                }
+            }
+
+            self.add_transaction_to_mempool(tx.clone(), tx_info);
+            self.trim_mempool_to_limit();
+
+            if self.mempool_policy.get(&tx.id).is_none() {
+                if let Some(sender_node) = self.nodes.get_mut(sender_id) {
+                    sender_node
+                        .mempool
+                        .retain(|existing_tx| existing_tx.id != tx.id);
+                }
+                return None;
+            }
 
             // İşlemi tüm node'lara yay
             self.broadcast_transaction(&tx);
@@ -193,42 +253,161 @@ impl BlockchainNetwork {
         }
     }
 
-    fn has_mempool_conflict(&self, transaction: &Transaction) -> bool {
-        transaction.inputs.iter().any(|input| {
-            self.mempool_spent_outpoints
-                .contains_key(&input.previous_output)
+    fn next_mempool_sequence(&mut self) -> u64 {
+        self.mempool_sequence_counter = self.mempool_sequence_counter.saturating_add(1);
+        self.mempool_sequence_counter
+    }
+
+    fn calculate_tx_info(
+        transaction: &Transaction,
+        utxo_set: &HashMap<OutPoint, UTXO>,
+        arrival_sequence: u64,
+    ) -> Option<MempoolTxInfo> {
+        let fee_sat = transaction.calculate_fee(utxo_set)?;
+        let size_bytes = transaction.estimated_size_bytes();
+        let fee_rate_sat_per_kb = transaction.calculate_fee_rate_sat_per_kb(utxo_set)?;
+
+        Some(MempoolTxInfo {
+            size_bytes,
+            fee_sat,
+            fee_rate_sat_per_kb,
+            arrival_sequence,
         })
     }
 
-    fn track_transaction_inputs(&mut self, transaction: &Transaction) {
+    fn collect_conflicting_tx_ids(&self, transaction: &Transaction) -> HashSet<String> {
+        let mut conflicts = HashSet::new();
+        for input in &transaction.inputs {
+            if let Some(tx_id) = self.mempool_spent_outpoints.get(&input.previous_output) {
+                conflicts.insert(tx_id.clone());
+            }
+        }
+        conflicts
+    }
+
+    fn can_replace_conflicts(
+        &self,
+        new_fee_rate_sat_per_kb: u64,
+        conflicting_tx_ids: &HashSet<String>,
+    ) -> bool {
+        conflicting_tx_ids.iter().all(|tx_id| {
+            self.mempool_policy.get(tx_id).is_some_and(|existing| {
+                new_fee_rate_sat_per_kb
+                    >= existing
+                        .fee_rate_sat_per_kb
+                        .saturating_add(self.replacement_increment_sat_per_kb)
+            })
+        })
+    }
+
+    fn add_transaction_to_mempool(&mut self, transaction: Transaction, tx_info: MempoolTxInfo) {
         for input in &transaction.inputs {
             self.mempool_spent_outpoints
                 .insert(input.previous_output.clone(), transaction.id.clone());
+        }
+
+        self.mempool_total_bytes = self.mempool_total_bytes.saturating_add(tx_info.size_bytes);
+        self.mempool_policy.insert(transaction.id.clone(), tx_info);
+        self.mempool.push(transaction);
+    }
+
+    fn remove_transaction_from_nodes_mempool(&mut self, tx_id: &str) {
+        for node in &mut self.nodes {
+            node.mempool.retain(|tx| tx.id != tx_id);
+        }
+    }
+
+    fn remove_transaction_from_mempool(&mut self, tx_id: &str) {
+        if let Some(position) = self.mempool.iter().position(|tx| tx.id == tx_id) {
+            let removed = self.mempool.remove(position);
+            for input in &removed.inputs {
+                self.mempool_spent_outpoints.remove(&input.previous_output);
+            }
+            if let Some(info) = self.mempool_policy.remove(tx_id) {
+                self.mempool_total_bytes = self.mempool_total_bytes.saturating_sub(info.size_bytes);
+            }
+            self.remove_transaction_from_nodes_mempool(tx_id);
+        }
+    }
+
+    fn trim_mempool_to_limit(&mut self) {
+        while self.mempool_total_bytes > self.max_mempool_bytes {
+            let candidate = self
+                .mempool
+                .iter()
+                .filter_map(|tx| {
+                    self.mempool_policy.get(&tx.id).map(|info| {
+                        (
+                            tx.id.clone(),
+                            info.fee_rate_sat_per_kb,
+                            info.arrival_sequence,
+                            info.fee_sat,
+                        )
+                    })
+                })
+                .min_by(|a, b| {
+                    a.1.cmp(&b.1)
+                        .then_with(|| a.2.cmp(&b.2))
+                        .then_with(|| a.3.cmp(&b.3))
+                });
+
+            let Some((tx_id, _, _, _)) = candidate else {
+                break;
+            };
+            self.remove_transaction_from_mempool(&tx_id);
         }
     }
 
     fn rebuild_mempool_outpoint_index(&mut self) {
         self.mempool_spent_outpoints.clear();
+        self.mempool_total_bytes = 0;
         for tx in &self.mempool {
             for input in &tx.inputs {
                 self.mempool_spent_outpoints
                     .insert(input.previous_output.clone(), tx.id.clone());
             }
+            if let Some(info) = self.mempool_policy.get(&tx.id) {
+                self.mempool_total_bytes = self.mempool_total_bytes.saturating_add(info.size_bytes);
+            }
         }
+    }
+
+    fn rebuild_mempool_policy_from_utxo_set(&mut self, utxo_set: &HashMap<OutPoint, UTXO>) {
+        self.mempool_policy.clear();
+        self.mempool_total_bytes = 0;
+        let mut valid_mempool = Vec::new();
+
+        let mempool_snapshot = self.mempool.clone();
+        for tx in mempool_snapshot {
+            if tx.is_coinbase() {
+                continue;
+            }
+            if let Some(info) = Self::calculate_tx_info(&tx, utxo_set, self.next_mempool_sequence()) {
+                self.mempool_total_bytes = self.mempool_total_bytes.saturating_add(info.size_bytes);
+                self.mempool_policy.insert(tx.id.clone(), info);
+                valid_mempool.push(tx);
+            }
+        }
+
+        self.mempool = valid_mempool;
+        self.rebuild_mempool_outpoint_index();
     }
 
     fn reconcile_network_mempool_after_chain_sync(&mut self) {
         let Some(reference_node) = self.nodes.first() else {
             self.mempool.clear();
-            self.rebuild_mempool_outpoint_index();
+            self.mempool_policy.clear();
+            self.mempool_spent_outpoints.clear();
+            self.mempool_total_bytes = 0;
             return;
         };
 
+        let reference_utxo_set = reference_node.utxo_set.clone();
         self.mempool
             .retain(|tx| !tx.is_coinbase() && reference_node.verify_transaction(tx));
-        self.rebuild_mempool_outpoint_index();
+        self.rebuild_mempool_policy_from_utxo_set(&reference_utxo_set);
+        self.trim_mempool_to_limit();
     }
-
     // İşlemi tüm node'lara yay
     pub fn broadcast_transaction(&mut self, transaction: &Transaction) {
         // Gönderici node'un adresini al (coinbase işlemlerinde gönderici olmaz)
@@ -333,6 +512,9 @@ impl BlockchainNetwork {
                 // Son blok zamanını güncelle
                 self.last_block_time = now;
 
+                let removed_tx_ids: HashSet<String> =
+                    block.transactions.iter().map(|tx| tx.id.clone()).collect();
+
                 // İşlemleri ağ mempool'undan çıkar
                 self.mempool.retain(|tx| {
                     !block
@@ -340,6 +522,11 @@ impl BlockchainNetwork {
                         .iter()
                         .any(|block_tx| block_tx.id == tx.id)
                 });
+
+                for tx_id in &removed_tx_ids {
+                    self.mempool_policy.remove(tx_id);
+                    self.remove_transaction_from_nodes_mempool(tx_id);
+                }
 
                 // Validator'un blockchain'ine bloğu ekle
                 validator.blockchain.push(block.clone());
@@ -399,7 +586,6 @@ impl BlockchainNetwork {
                 node.update_blockchain(blockchain.clone(), self.difficulty);
             }
         }
-
         self.reconcile_network_mempool_after_chain_sync();
     }
 

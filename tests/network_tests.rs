@@ -100,7 +100,7 @@ fn madenci_odulu_ucret_eklenince_artmali() {
 
     let mut fee_tx = network.nodes[sender_id]
         .wallet
-        .create_transaction(&recipient_address, 100_000_000)
+        .create_transaction_with_fee(&recipient_address, 100_000_000, 0)
         .expect("islem olusmali");
     fee_tx.outputs[1].amount -= 1_000;
     fee_tx.id = fee_tx.calculate_hash();
@@ -187,6 +187,21 @@ fn chain_sync_sirasinda_wallet_kimligi_ve_bakiye_korunmali() {
 }
 
 #[test]
+fn mempool_min_fee_rate_altindaki_islem_reddedilmeli() {
+    let mut network = setup_network(3);
+    mine_genesis(&mut network);
+
+    let sender_id =
+        find_funded_node(&network).expect("Genesis sonrasi en az bir node fonlanmis olmali");
+    let recipient_id = if sender_id == 0 { 1 } else { 0 };
+    let recipient_address = network.get_node_address(recipient_id);
+
+    let tx = network.create_transaction_with_fee(sender_id, &recipient_address, 100_000_000, 0);
+    assert!(tx.is_none());
+    assert!(network.mempool.is_empty());
+}
+
+#[test]
 fn chain_sync_sonrasi_mempooldaki_harcanmis_tx_temizlenmeli() {
     let mut network = setup_network(3);
     mine_genesis(&mut network);
@@ -254,4 +269,84 @@ fn broadcast_blockchain_sonrasi_ag_mempoolu_da_temizlenmeli() {
     network.broadcast_blockchain(longer_chain);
 
     assert!(network.mempool.is_empty());
+}
+
+#[test]
+fn rbf_lite_daha_yuksek_fee_ile_replace_etmeli() {
+    let mut network = setup_network(3);
+    mine_genesis(&mut network);
+
+    let sender_id =
+        find_funded_node(&network).expect("Genesis sonrasi en az bir node fonlanmis olmali");
+    let recipient_id = if sender_id == 0 { 1 } else { 0 };
+    let recipient_address = network.get_node_address(recipient_id);
+
+    let low_fee_tx = network
+        .create_transaction_with_fee(sender_id, &recipient_address, 100_000_000, 1_000)
+        .expect("dusuk fee tx mempoola girmeli");
+    let high_fee_tx = network
+        .create_transaction_with_fee(sender_id, &recipient_address, 100_000_000, 50_000)
+        .expect("yuksek fee tx dusuk fee tx'i replace etmeli");
+
+    assert_eq!(network.mempool.len(), 1);
+    assert_eq!(network.mempool[0].id, high_fee_tx.id);
+    assert_ne!(network.mempool[0].id, low_fee_tx.id);
+}
+
+#[test]
+fn blok_seciminde_yuksek_fee_orani_once_gelmeli() {
+    let mut network = setup_network(4);
+    mine_genesis(&mut network);
+
+    let sender_a =
+        find_funded_node(&network).expect("Genesis sonrasi en az bir node fonlanmis olmali");
+    let sender_b = if sender_a == 0 { 1 } else { 0 };
+    let sender_b_address = network.get_node_address(sender_b);
+
+    let _fund_tx = network
+        .create_transaction_with_fee(sender_a, &sender_b_address, 200_000_000, 1_000)
+        .expect("sender_b fonlanmali");
+
+    for node in network.nodes.iter_mut() {
+        node.is_validator = false;
+    }
+    network.nodes[0].is_validator = true;
+    network.current_validator_id = Some(0);
+    let _ = network.mine_block().expect("fonlama blogu uretilmeli");
+
+    let recipient_id = if sender_b == 2 { 3 } else { 2 };
+    let recipient_address = network.get_node_address(recipient_id);
+
+    let low_fee_tx = network
+        .create_transaction_with_fee(sender_a, &recipient_address, 100_000_000, 1_000)
+        .expect("dusuk fee tx olusmali");
+    let high_fee_tx = network
+        .create_transaction_with_fee(sender_b, &recipient_address, 50_000_000, 50_000)
+        .expect("yuksek fee tx olusmali");
+
+    for node in network.nodes.iter_mut() {
+        node.is_validator = false;
+    }
+    network.nodes[0].is_validator = true;
+    network.current_validator_id = Some(0);
+    let mined_block = network.mine_block().expect("blok uretilmeli");
+
+    let included_ids: Vec<String> = mined_block
+        .transactions
+        .iter()
+        .skip(1)
+        .map(|tx| tx.id.clone())
+        .collect();
+    assert!(included_ids.iter().any(|id| id == &low_fee_tx.id));
+    assert!(included_ids.iter().any(|id| id == &high_fee_tx.id));
+
+    let high_pos = included_ids
+        .iter()
+        .position(|id| id == &high_fee_tx.id)
+        .expect("yuksek fee tx blokta olmali");
+    let low_pos = included_ids
+        .iter()
+        .position(|id| id == &low_fee_tx.id)
+        .expect("dusuk fee tx blokta olmali");
+    assert!(high_pos < low_pos);
 }
