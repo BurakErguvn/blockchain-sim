@@ -1,30 +1,105 @@
 # Development Notes and Roadmap
 
-## Implemented Improvements
+## Detailed Recent Changes (After README Restructure)
 
-Recent iterations have introduced:
+This section captures the major technical additions introduced after the modular README transition.
 
-- modular test structure,
-- stronger transaction validation (signature and ownership checks),
-- mempool conflict prevention through outpoint tracking,
-- fee accounting and coinbase reward cap validation,
-- typed OutPoint-based UTXO identity model,
-- wallet state reconstruction during chain synchronization without identity reset.
+### 1) Advanced Mempool Policy and Fee Mechanics
 
-## Short-Term Recommendations
+- Mempool capacity is now strictly capped at `300 MB`.
+- Minimum fee-rate admission was introduced (sat/kB threshold).
+- Mempool entries now track policy metadata:
+  - estimated size,
+  - fee amount,
+  - fee-rate,
+  - arrival sequence.
+- Block assembly now prioritizes mempool entries by fee-rate.
+- RBF-lite behavior was added:
+  - a conflicting transaction can replace an existing one,
+  - only if it satisfies the configured minimum fee-rate increase.
+- Post-sync and post-broadcast mempool reconciliation has been hardened.
 
-1. Resolve existing compiler warnings and tighten lint policy.
-2. Extend full-chain validation with fee and coinbase constraints at every block.
-3. Clarify mempool ordering policy (for example, fee-prioritized selection).
+### 2) Fork/Reorg Simulation and Chain Selection
 
-## Mid-Term Recommendations
+- Chain selection for equal-length candidates now uses:
+  1. chain length,
+  2. cumulative work score,
+  3. deterministic tip-hash tie-break.
+- Common-ancestor detection and reorg-depth estimation were added.
+- A network-level fork/reorg simulation path was introduced (`simulate_fork_and_reorg`).
+- Integration tests now verify node state and mempool consistency across reorg transitions.
 
-1. Improve network model realism and message scheduling behavior.
-2. Externalize runtime parameters into CLI/configuration files.
-3. Expand reorganization and synchronization test coverage.
+### 3) Persistence Phase 1 + Phase 2
 
-## Long-Term Recommendations
+#### Phase 1
+- Network metadata, node chains, and wallet identity are now persisted on disk.
+- Crash-safe write flow was introduced:
+  - write temp file,
+  - `fsync`,
+  - atomic rename.
+- Startup recovery now restores persisted state when available.
 
-1. Introduce persistent state storage and deterministic reload.
-2. Add API and visualization layers for observability.
-3. Support broader consensus experimentation scenarios.
+#### Phase 2
+- Schema versioning and migration support (`v1 -> v2`) was added.
+- Per-node UTXO snapshots with checksums were introduced.
+- Safe fallback behavior on checksum mismatch:
+  - rebuild UTXO state directly from blockchain history.
+- Mempool persistence and policy-based revalidation on restart were added.
+
+### 4) HTTP API Program
+
+- A dedicated API binary was added (`api_server`).
+- Core endpoints were introduced for:
+  - health checks,
+  - network state,
+  - node list/detail,
+  - blockchain inspection,
+  - mempool inspection,
+  - transaction creation,
+  - single-step block mining.
+- Persistence hooks now run after API write operations.
+
+### 5) Next-Generation CLI (Phases 1-2-3)
+
+#### Phase 1
+- New `sim_cli` binary with stateful subcommands:
+  - init/status/nodes/chain/tx/mempool/mine/persistence.
+- Global runtime flags:
+  - `--state-path`,
+  - `--json`.
+
+#### Phase 2
+- Interactive REPL mode (default when no command is provided).
+- Persistent command history.
+- Command suggestions and initial autocomplete support.
+
+#### Phase 3
+- Scenario command set:
+  - `scenario list`,
+  - `scenario run quickstart`,
+  - `scenario run fork-reorg`.
+- Alias management:
+  - add/list/remove + REPL expansion.
+- Macro management:
+  - add/list/remove/run + `!macro` shortcut execution.
+- Namespace-aware autocomplete at root and subcommand levels.
+
+## Updated Roadmap
+
+### Short-Term
+
+1. Systematically resolve compiler warnings and enforce stricter lint gates.
+2. Formalize CLI command contracts (JSON schemas and examples).
+3. Harden API controls (CORS, auth, and rate limiting baseline).
+
+### Mid-Term
+
+1. Add argument-level REPL autocomplete and contextual in-shell help.
+2. Extend scenario/macro execution to file-based script workflows.
+3. Improve network simulation realism with richer delay and partition models.
+
+### Long-Term
+
+1. Optimize snapshot + incremental persistence layout for larger histories.
+2. Introduce unified observability (event stream/metrics) across CLI and API.
+3. Automate consensus benchmarking across broader scenario matrices.

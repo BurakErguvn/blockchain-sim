@@ -11,6 +11,7 @@ Bu dizin, projenin teknik dokümantasyonunu modüler bir yapıda sunar. Amaç, k
 5. [Kurulum ve Çalıştırma](05-kurulum-ve-calistirma.md)
 6. [Komut Satırı Arayüzü Referansı](06-komut-satiri-arayuzu.md)
 7. [Geliştirme Notları ve Yol Haritası](07-gelisim-notlari-ve-yol-haritasi.md)
+8. [HTTP API Kullanım Kılavuzu](08-http-api-kullanimi.md)
 
 ## Kullanım Önerisi
 
@@ -21,3 +22,4 @@ Teknik inceleme sırasında aşağıdaki okuma sırası önerilir:
 3. Veri akışını anlamak için **İşlem ve UTXO Modeli**
 4. Doğrulama ilkelerini anlamak için **Mutabakat ve Güvenlik**
 5. Uygulamalı kullanım için **Kurulum ve Çalıştırma** ile **Komut Satırı Arayüzü**
+6. Programatik entegrasyon için **HTTP API Kullanım Kılavuzu**
