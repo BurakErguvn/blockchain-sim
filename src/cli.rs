@@ -196,7 +196,10 @@ struct CliReplHelper {
 impl CliReplHelper {
     fn new() -> Self {
         Self {
-            commands: ROOT_COMMANDS.iter().map(|command| command.to_string()).collect(),
+            commands: ROOT_COMMANDS
+                .iter()
+                .map(|command| command.to_string())
+                .collect(),
             hinter: HistoryHinter::new(),
         }
     }
