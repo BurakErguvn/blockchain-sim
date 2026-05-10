@@ -20,14 +20,20 @@ fn temp_state_path(prefix: &str) -> PathBuf {
 fn persistence_roundtrip_wallet_ve_zinciri_korumali() {
     let mut network = setup_network(3);
     mine_genesis(&mut network);
-    let _ = network.mine_block().expect("en az bir blok daha uretilmeli");
+    let _ = network
+        .mine_block()
+        .expect("en az bir blok daha uretilmeli");
 
     let pre_load_addresses: Vec<String> = network
         .nodes
         .iter()
         .map(|node| node.wallet.get_address().to_string())
         .collect();
-    let pre_load_balances: Vec<u64> = network.nodes.iter().map(|node| node.wallet.get_balance()).collect();
+    let pre_load_balances: Vec<u64> = network
+        .nodes
+        .iter()
+        .map(|node| node.wallet.get_balance())
+        .collect();
     let pre_load_hashes: Vec<Vec<String>> = (0..network.node_count())
         .map(|id| network.get_node_blockchain_hashes(id))
         .collect();
@@ -51,7 +57,10 @@ fn persistence_roundtrip_wallet_ve_zinciri_korumali() {
             loaded_network.nodes[i].wallet.get_address(),
             pre_load_addresses[i]
         );
-        assert_eq!(loaded_network.nodes[i].wallet.get_balance(), pre_load_balances[i]);
+        assert_eq!(
+            loaded_network.nodes[i].wallet.get_balance(),
+            pre_load_balances[i]
+        );
         assert_eq!(
             loaded_network.get_node_blockchain_hashes(i),
             pre_load_hashes[i]
