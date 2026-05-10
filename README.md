@@ -15,6 +15,7 @@ Bu dosya, proje dokümantasyonu için yönlendirme indeksidir. Ayrıntılı içe
 - [Kurulum ve Çalıştırma](docs/05-kurulum-ve-calistirma.md)
 - [Komut Satırı Arayüzü Referansı](docs/06-komut-satiri-arayuzu.md)
 - [Geliştirme Notları ve Yol Haritası](docs/07-gelisim-notlari-ve-yol-haritasi.md)
+- [HTTP API Kullanım Kılavuzu](docs/08-http-api-kullanimi.md)
 
 ## Son Güncellemeler (README Yenilemesinden Sonra)
 

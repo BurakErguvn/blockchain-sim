@@ -11,6 +11,7 @@ This directory provides a modular technical documentation structure for the proj
 5. [Installation and Running](05-installation-and-running.md)
 6. [Command-Line Interface Reference](06-cli-reference.md)
 7. [Development Notes and Roadmap](07-development-notes-and-roadmap.md)
+8. [HTTP API Usage Guide](08-http-api-usage.md)
 
 ## Recommended Reading Order
 
@@ -22,3 +23,4 @@ For a structured technical review, the following order is recommended:
 4. Consensus and Security
 5. Installation and Running
 6. Command-Line Interface Reference
+7. HTTP API Usage Guide

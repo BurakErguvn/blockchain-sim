@@ -15,6 +15,7 @@ This file serves as the English documentation entry point. Detailed technical co
 - [Installation and Running](docs/en/05-installation-and-running.md)
 - [Command-Line Interface Reference](docs/en/06-cli-reference.md)
 - [Development Notes and Roadmap](docs/en/07-development-notes-and-roadmap.md)
+- [HTTP API Usage Guide](docs/en/08-http-api-usage.md)
 
 ## Recent Updates (Since the README Restructure)
 
