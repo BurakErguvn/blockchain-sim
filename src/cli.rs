@@ -419,7 +419,8 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 }
                 let amount_satoshi = coin_to_satoshi(amount_coin)?;
                 let recipient_address = network.get_node_address(recipient_id);
-                let Some(tx) = network.create_transaction(sender_id, &recipient_address, amount_satoshi)
+                let Some(tx) =
+                    network.create_transaction(sender_id, &recipient_address, amount_satoshi)
                 else {
                     return Err("İşlem oluşturulamadı".to_string());
                 };
