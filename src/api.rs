@@ -113,7 +113,9 @@ async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { status: "ok" })
 }
 
-async fn network_state(State(state): State<ApiState>) -> Result<Json<NetworkStateResponse>, ApiHttpError> {
+async fn network_state(
+    State(state): State<ApiState>,
+) -> Result<Json<NetworkStateResponse>, ApiHttpError> {
     let network = state
         .network
         .lock()
@@ -243,7 +245,9 @@ async fn create_transaction(
     Json(req): Json<CreateTransactionRequest>,
 ) -> Result<(StatusCode, Json<CreateTransactionResponse>), ApiHttpError> {
     if !req.amount_coin.is_finite() || req.amount_coin <= 0.0 {
-        return Err(ApiHttpError::bad_request("amount_coin sıfırdan büyük olmalı"));
+        return Err(ApiHttpError::bad_request(
+            "amount_coin sıfırdan büyük olmalı",
+        ));
     }
 
     let amount_satoshi = (req.amount_coin * 100_000_000.0).round();
@@ -257,16 +261,23 @@ async fn create_transaction(
         .map_err(|_| ApiHttpError::internal("İşlem oluşturulamadı"))?;
 
     if req.sender_id >= network.node_count() || req.recipient_id >= network.node_count() {
-        return Err(ApiHttpError::bad_request("Geçersiz sender_id veya recipient_id"));
+        return Err(ApiHttpError::bad_request(
+            "Geçersiz sender_id veya recipient_id",
+        ));
     }
 
     let recipient_address = network.get_node_address(req.recipient_id);
-    let Some(tx) = network.create_transaction(req.sender_id, &recipient_address, amount_satoshi as u64) else {
+    let Some(tx) =
+        network.create_transaction(req.sender_id, &recipient_address, amount_satoshi as u64)
+    else {
         return Err(ApiHttpError::bad_request("İşlem oluşturulamadı"));
     };
 
     if let Err(err) = network.save_to_disk(BlockchainNetwork::DEFAULT_STATE_PATH) {
-        return Err(ApiHttpError::internal(format!("State kaydedilemedi: {}", err)));
+        return Err(ApiHttpError::internal(format!(
+            "State kaydedilemedi: {}",
+            err
+        )));
     }
 
     Ok((
@@ -292,7 +303,10 @@ async fn mine_block(
     };
 
     if let Err(err) = network.save_to_disk(BlockchainNetwork::DEFAULT_STATE_PATH) {
-        return Err(ApiHttpError::internal(format!("State kaydedilemedi: {}", err)));
+        return Err(ApiHttpError::internal(format!(
+            "State kaydedilemedi: {}",
+            err
+        )));
     }
 
     Ok((

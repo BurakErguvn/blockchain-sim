@@ -32,7 +32,10 @@ async fn main() {
             state
         }
         Err(err) => {
-            println!("Persisted state yüklenemedi: {}. Yeni ağ başlatılıyor.", err);
+            println!(
+                "Persisted state yüklenemedi: {}. Yeni ağ başlatılıyor.",
+                err
+            );
             let network = bootstrap_network();
             if let Err(save_err) = network.save_to_disk(BlockchainNetwork::DEFAULT_STATE_PATH) {
                 println!("Başlangıç state'i kaydedilemedi: {}", save_err);
