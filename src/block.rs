@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
 
@@ -5,7 +6,7 @@ use std::fmt;
 use crate::transaction::Transaction;
 
 // Block yapısı
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub index: usize,
     pub timestamp: u64,

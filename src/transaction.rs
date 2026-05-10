@@ -1,16 +1,17 @@
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct OutPoint {
     pub txid: String,
     pub vout: usize,
 }
 
 // UTXO (Unspent Transaction Output) yapısı
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UTXO {
     pub outpoint: OutPoint,        // Bu UTXO'nun kimliği (txid + vout)
     pub amount: u64,               // Miktar (örn. satoshi cinsinden)
@@ -18,7 +19,7 @@ pub struct UTXO {
 }
 
 // Transaction Input yapısı
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxInput {
     pub previous_output: OutPoint, // Harcanacak UTXO'nun outpoint bilgisi
     pub signature: Vec<u8>,        // Girdi için imza
@@ -27,14 +28,14 @@ pub struct TxInput {
 }
 
 // Transaction Output yapısı
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxOutput {
     pub amount: u64,               // Miktar
     pub recipient_address: String, // Alıcı adresi
 }
 
 // Transaction yapısı
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction {
     pub id: String,             // İşlem ID'si (hash)
     pub inputs: Vec<TxInput>,   // Girdiler

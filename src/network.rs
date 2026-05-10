@@ -1,5 +1,9 @@
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::Write;
+use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -15,6 +19,28 @@ struct MempoolTxInfo {
     fee_sat: u64,
     fee_rate_sat_per_kb: u64,
     arrival_sequence: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedNodeState {
+    id: usize,
+    connections: Vec<usize>,
+    mining_reward: u64,
+    blockchain: Vec<Block>,
+    wallet_private_key_hex: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedNetworkState {
+    schema_version: u32,
+    difficulty: usize,
+    block_time: u64,
+    last_block_time: u64,
+    current_validator_id: Option<usize>,
+    max_mempool_bytes: usize,
+    min_fee_rate_sat_per_kb: u64,
+    replacement_increment_sat_per_kb: u64,
+    nodes: Vec<PersistedNodeState>,
 }
 
 pub struct BlockchainNetwork {
@@ -37,6 +63,8 @@ pub struct BlockchainNetwork {
 }
 
 impl BlockchainNetwork {
+    const PERSISTENCE_SCHEMA_VERSION: u32 = 1;
+    pub const DEFAULT_STATE_PATH: &'static str = "./data/network_state.json";
     const DEFAULT_MAX_MEMPOOL_BYTES: usize = 300 * 1024 * 1024;
     const DEFAULT_MIN_FEE_RATE_SAT_PER_KB: u64 = 1_000;
     const DEFAULT_REPLACEMENT_INCREMENT_SAT_PER_KB: u64 = 100;
@@ -66,6 +94,114 @@ impl BlockchainNetwork {
             mining_thread: None,
             stop_sender: None,
         }
+    }
+
+    fn to_persisted_state(&self) -> PersistedNetworkState {
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|node| PersistedNodeState {
+                id: node.id,
+                connections: node.connections.clone(),
+                mining_reward: node.mining_reward,
+                blockchain: node.blockchain.clone(),
+                wallet_private_key_hex: node.wallet.private_key_hex(),
+            })
+            .collect();
+
+        PersistedNetworkState {
+            schema_version: Self::PERSISTENCE_SCHEMA_VERSION,
+            difficulty: self.difficulty,
+            block_time: self.block_time,
+            last_block_time: self.last_block_time,
+            current_validator_id: self.current_validator_id,
+            max_mempool_bytes: self.max_mempool_bytes,
+            min_fee_rate_sat_per_kb: self.min_fee_rate_sat_per_kb,
+            replacement_increment_sat_per_kb: self.replacement_increment_sat_per_kb,
+            nodes,
+        }
+    }
+
+    fn from_persisted_state(state: PersistedNetworkState) -> Result<Self, String> {
+        if state.schema_version != Self::PERSISTENCE_SCHEMA_VERSION {
+            return Err(format!(
+                "Desteklenmeyen state sürümü: {}",
+                state.schema_version
+            ));
+        }
+
+        let mut nodes = Vec::new();
+        for persisted_node in state.nodes {
+            let is_validator = Some(persisted_node.id) == state.current_validator_id;
+            let Some(node) = Node::from_persisted_state(
+                persisted_node.id,
+                persisted_node.connections,
+                is_validator,
+                persisted_node.blockchain,
+                &persisted_node.wallet_private_key_hex,
+                persisted_node.mining_reward,
+            ) else {
+                return Err(format!(
+                    "Node {} için wallet state yüklenemedi",
+                    persisted_node.id
+                ));
+            };
+            if !node.is_chain_valid_with_difficulty(&node.blockchain, state.difficulty) {
+                return Err(format!("Node {} zinciri geçersiz", node.id));
+            }
+            nodes.push(node);
+        }
+
+        let mut network = Self::new();
+        network.nodes = nodes;
+        network.mempool.clear();
+        network.mempool_policy.clear();
+        network.mempool_spent_outpoints.clear();
+        network.mempool_total_bytes = 0;
+        network.mempool_sequence_counter = 0;
+        network.max_mempool_bytes = state.max_mempool_bytes;
+        network.min_fee_rate_sat_per_kb = state.min_fee_rate_sat_per_kb;
+        network.replacement_increment_sat_per_kb = state.replacement_increment_sat_per_kb;
+        network.current_validator_id = state.current_validator_id;
+        network.difficulty = state.difficulty;
+        network.block_time = state.block_time;
+        network.last_block_time = state.last_block_time;
+        network.mining_active = false;
+        network.mining_thread = None;
+        network.stop_sender = None;
+        network.reconcile_network_mempool_after_chain_sync();
+
+        Ok(network)
+    }
+
+    pub fn save_to_disk(&self, path: &str) -> Result<(), String> {
+        let state = self.to_persisted_state();
+        let state_json = serde_json::to_vec_pretty(&state).map_err(|err| err.to_string())?;
+        let path = Path::new(path);
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+        }
+
+        let tmp_path = path.with_extension("tmp");
+        {
+            let mut tmp_file = fs::File::create(&tmp_path).map_err(|err| err.to_string())?;
+            tmp_file
+                .write_all(&state_json)
+                .map_err(|err| err.to_string())?;
+            tmp_file.sync_all().map_err(|err| err.to_string())?;
+        }
+
+        fs::rename(&tmp_path, path).map_err(|err| err.to_string())?;
+        Ok(())
+    }
+
+    pub fn load_from_disk(path: &str) -> Result<Self, String> {
+        let path = Path::new(path);
+        let state_json = fs::read(path).map_err(|err| err.to_string())?;
+        let state: PersistedNetworkState =
+            serde_json::from_slice(&state_json).map_err(|err| err.to_string())?;
+        Self::from_persisted_state(state)
     }
 
     // Otomatik madencilik işlemini başlat
