@@ -1,6 +1,15 @@
 use clap::{Args, Parser, Subcommand};
+use rustyline::completion::{Completer, Pair};
+use rustyline::error::ReadlineError;
+use rustyline::highlight::Highlighter;
+use rustyline::hint::{Hinter, HistoryHinter};
+use rustyline::history::DefaultHistory;
+use rustyline::validate::Validator;
+use rustyline::{Context, Editor, Helper};
 use serde::Serialize;
+use std::fs;
 use std::path::Path;
+use strsim::jaro_winkler;
 
 use crate::network::BlockchainNetwork;
 
@@ -20,11 +29,12 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    Repl,
     Init(InitArgs),
     Status,
     Nodes {
@@ -163,6 +173,75 @@ struct ActionResult {
     message: String,
 }
 
+const ROOT_COMMANDS: &[&str] = &[
+    "repl",
+    "init",
+    "status",
+    "nodes",
+    "chain",
+    "tx",
+    "mempool",
+    "mine",
+    "persistence",
+    "help",
+    "exit",
+    "quit",
+];
+
+struct CliReplHelper {
+    commands: Vec<String>,
+    hinter: HistoryHinter,
+}
+
+impl CliReplHelper {
+    fn new() -> Self {
+        Self {
+            commands: ROOT_COMMANDS.iter().map(|command| command.to_string()).collect(),
+            hinter: HistoryHinter::new(),
+        }
+    }
+}
+
+impl Helper for CliReplHelper {}
+impl Validator for CliReplHelper {}
+impl Highlighter for CliReplHelper {}
+
+impl Hinter for CliReplHelper {
+    type Hint = String;
+
+    fn hint(&self, line: &str, pos: usize, ctx: &Context<'_>) -> Option<Self::Hint> {
+        self.hinter.hint(line, pos, ctx)
+    }
+}
+
+impl Completer for CliReplHelper {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &Context<'_>,
+    ) -> Result<(usize, Vec<Self::Candidate>), ReadlineError> {
+        let input = &line[..pos];
+        if input.contains(' ') {
+            return Ok((pos, Vec::new()));
+        }
+
+        let matches = self
+            .commands
+            .iter()
+            .filter(|command| command.starts_with(input))
+            .map(|command| Pair {
+                display: command.clone(),
+                replacement: command.clone(),
+            })
+            .collect();
+
+        Ok((0, matches))
+    }
+}
+
 fn coin_to_satoshi(amount_coin: f64) -> Result<u64, String> {
     if !amount_coin.is_finite() || amount_coin <= 0.0 {
         return Err("amount_coin sıfırdan büyük olmalı".to_string());
@@ -217,19 +296,51 @@ fn save_state(network: &BlockchainNetwork, path: &str) -> Result<(), String> {
         .map_err(|err| format!("State kaydedilemedi ({}): {}", path, err))
 }
 
-pub fn run(cli: Cli) -> Result<(), String> {
-    match cli.command {
+fn history_file_path(state_path: &str) -> String {
+    let state_path = Path::new(state_path);
+    let base_dir = state_path.parent().unwrap_or_else(|| Path::new("."));
+    base_dir
+        .join(".sim_cli_history")
+        .to_string_lossy()
+        .to_string()
+}
+
+fn print_repl_help() {
+    println!("Komutlar: init, status, nodes, chain, tx, mempool, mine, persistence");
+    println!("Yardım: help");
+    println!("Çıkış: exit | quit");
+}
+
+fn suggest_root_commands(token: &str) -> Vec<String> {
+    let mut candidates: Vec<(f64, String)> = ROOT_COMMANDS
+        .iter()
+        .filter_map(|command| {
+            let score = jaro_winkler(command, token);
+            if score >= 0.75 {
+                Some((score, (*command).to_string()))
+            } else {
+                None
+            }
+        })
+        .collect();
+    candidates.sort_by(|a, b| b.0.total_cmp(&a.0));
+    candidates.into_iter().map(|(_, command)| command).collect()
+}
+
+fn execute_command(state_path: &str, json: bool, command: Command) -> Result<(), String> {
+    match command {
+        Command::Repl => run_repl(state_path, json),
         Command::Init(args) => {
-            let state_path = Path::new(&cli.state_path);
-            if state_path.exists() && !args.force {
+            let state_path_ref = Path::new(state_path);
+            if state_path_ref.exists() && !args.force {
                 return Err(format!(
                     "{} zaten mevcut. Üzerine yazmak için --force kullanın.",
-                    cli.state_path
+                    state_path
                 ));
             }
 
             let network = bootstrap_network(&args)?;
-            save_state(&network, &cli.state_path)?;
+            save_state(&network, state_path)?;
 
             let message = ActionResult {
                 message: format!(
@@ -237,7 +348,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     args.nodes, args.difficulty, args.block_time
                 ),
             };
-            if cli.json {
+            if json {
                 print_json(&message)?;
             } else {
                 println!("{}", message.message);
@@ -245,7 +356,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             Ok(())
         }
         Command::Status => {
-            let network = load_state(&cli.state_path)?;
+            let network = load_state(state_path)?;
             let tip = network
                 .nodes
                 .first()
@@ -261,7 +372,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 tip_hash: tip.as_ref().map(|(_, hash)| hash.clone()),
             };
 
-            if cli.json {
+            if json {
                 print_json(&status)?;
             } else {
                 println!("Node sayısı        : {}", status.node_count);
@@ -275,7 +386,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             Ok(())
         }
         Command::Nodes { command } => {
-            let network = load_state(&cli.state_path)?;
+            let network = load_state(state_path)?;
             match command {
                 NodesCommand::List => {
                     let nodes: Vec<NodeView> = network
@@ -292,7 +403,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         })
                         .collect();
 
-                    if cli.json {
+                    if json {
                         print_json(&nodes)?;
                     } else {
                         for node in &nodes {
@@ -321,7 +432,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         is_validator: node.is_validator,
                         utxo_count: node.utxo_set.len(),
                     };
-                    if cli.json {
+                    if json {
                         print_json(&view)?;
                     } else {
                         println!("Node #{}", view.id);
@@ -337,7 +448,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             }
         }
         Command::Chain { command } => {
-            let network = load_state(&cli.state_path)?;
+            let network = load_state(state_path)?;
             match command {
                 ChainCommand::Tip => {
                     let Some(node) = network.nodes.first() else {
@@ -353,7 +464,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         timestamp: tip.timestamp,
                         tx_count: tip.transactions.len(),
                     };
-                    if cli.json {
+                    if json {
                         print_json(&view)?;
                     } else {
                         println!("Tip index : {}", view.index);
@@ -393,7 +504,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                             .collect()
                     };
 
-                    if cli.json {
+                    if json {
                         print_json(&views)?;
                     } else {
                         for block in &views {
@@ -413,7 +524,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 recipient_id,
                 amount_coin,
             } => {
-                let mut network = load_state(&cli.state_path)?;
+                let mut network = load_state(state_path)?;
                 if sender_id >= network.node_count() || recipient_id >= network.node_count() {
                     return Err("Geçersiz sender_id veya recipient_id".to_string());
                 }
@@ -424,7 +535,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 else {
                     return Err("İşlem oluşturulamadı".to_string());
                 };
-                save_state(&network, &cli.state_path)?;
+                save_state(&network, state_path)?;
 
                 #[derive(Serialize)]
                 struct TxCreateResult {
@@ -441,7 +552,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     amount_satoshi,
                     mempool_count: network.mempool.len(),
                 };
-                if cli.json {
+                if json {
                     print_json(&result)?;
                 } else {
                     println!(
@@ -454,7 +565,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
         },
         Command::Mempool { command } => match command {
             MempoolCommand::List => {
-                let network = load_state(&cli.state_path)?;
+                let network = load_state(state_path)?;
                 let fee_ref = network.nodes.first().map(|node| &node.utxo_set);
                 let entries: Vec<MempoolView> = network
                     .mempool
@@ -474,7 +585,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     })
                     .collect();
 
-                if cli.json {
+                if json {
                     print_json(&entries)?;
                 } else if entries.is_empty() {
                     println!("Mempool boş");
@@ -495,14 +606,14 @@ pub fn run(cli: Cli) -> Result<(), String> {
         },
         Command::Mine { command } => match command {
             MineCommand::Once => {
-                let mut network = load_state(&cli.state_path)?;
+                let mut network = load_state(state_path)?;
                 if network.current_val_id().is_none() {
                     network.select_random_validator();
                 }
                 let Some(block) = network.mine_block() else {
                     return Err("Blok üretilemedi".to_string());
                 };
-                save_state(&network, &cli.state_path)?;
+                save_state(&network, state_path)?;
 
                 let result = ChainBlockView {
                     index: block.index,
@@ -511,7 +622,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     timestamp: block.timestamp,
                     tx_count: block.transactions.len(),
                 };
-                if cli.json {
+                if json {
                     print_json(&result)?;
                 } else {
                     println!(
@@ -524,17 +635,17 @@ pub fn run(cli: Cli) -> Result<(), String> {
         },
         Command::Persistence { command } => match command {
             PersistenceCommand::Info => {
-                let exists = Path::new(&cli.state_path).exists();
+                let exists = Path::new(state_path).exists();
                 #[derive(Serialize)]
                 struct InfoResult {
                     state_path: String,
                     exists: bool,
                 }
                 let result = InfoResult {
-                    state_path: cli.state_path,
+                    state_path: state_path.to_string(),
                     exists,
                 };
-                if cli.json {
+                if json {
                     print_json(&result)?;
                 } else {
                     println!("state_path: {}", result.state_path);
@@ -543,14 +654,14 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 Ok(())
             }
             PersistenceCommand::Save { path } => {
-                let target_path = path.unwrap_or(cli.state_path.clone());
-                let network = load_state(&cli.state_path)?;
+                let target_path = path.unwrap_or_else(|| state_path.to_string());
+                let network = load_state(state_path)?;
                 save_state(&network, &target_path)?;
 
                 let result = ActionResult {
                     message: format!("State kaydedildi: {}", target_path),
                 };
-                if cli.json {
+                if json {
                     print_json(&result)?;
                 } else {
                     println!("{}", result.message);
@@ -559,11 +670,11 @@ pub fn run(cli: Cli) -> Result<(), String> {
             }
             PersistenceCommand::Load { path } => {
                 let network = load_state(&path)?;
-                save_state(&network, &cli.state_path)?;
+                save_state(&network, state_path)?;
                 let result = ActionResult {
-                    message: format!("State yüklendi: {} -> {}", path, cli.state_path),
+                    message: format!("State yüklendi: {} -> {}", path, state_path),
                 };
-                if cli.json {
+                if json {
                     print_json(&result)?;
                 } else {
                     println!("{}", result.message);
@@ -571,6 +682,94 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 Ok(())
             }
         },
+    }
+}
+
+fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
+    let history_path = history_file_path(state_path);
+    if let Some(parent) = Path::new(&history_path).parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+
+    let mut editor: Editor<CliReplHelper, DefaultHistory> =
+        Editor::new().map_err(|err| err.to_string())?;
+    editor.set_helper(Some(CliReplHelper::new()));
+    let _ = editor.load_history(&history_path);
+
+    println!("sim-cli repl başlatıldı. Yardım için 'help', çıkış için 'exit'.");
+    loop {
+        match editor.readline("sim> ") {
+            Ok(line) => {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+
+                let _ = editor.add_history_entry(line);
+                if line == "exit" || line == "quit" {
+                    break;
+                }
+                if line == "help" {
+                    print_repl_help();
+                    continue;
+                }
+
+                let tokens = match shell_words::split(line) {
+                    Ok(tokens) => tokens,
+                    Err(err) => {
+                        println!("Parse hatası: {}", err);
+                        continue;
+                    }
+                };
+
+                let mut args = vec![
+                    "sim-cli".to_string(),
+                    "--state-path".to_string(),
+                    state_path.to_string(),
+                ];
+                if json {
+                    args.push("--json".to_string());
+                }
+                args.extend(tokens.clone());
+
+                match Cli::try_parse_from(args) {
+                    Ok(parsed) => match parsed.command {
+                        Some(Command::Repl) => {
+                            println!("Zaten REPL modundasın.");
+                        }
+                        Some(command) => {
+                            if let Err(err) =
+                                execute_command(&parsed.state_path, parsed.json, command)
+                            {
+                                println!("Hata: {}", err);
+                            }
+                        }
+                        None => print_repl_help(),
+                    },
+                    Err(err) => {
+                        println!("{}", err);
+                        if let Some(first) = tokens.first() {
+                            let suggestions = suggest_root_commands(first);
+                            if !suggestions.is_empty() {
+                                println!("Öneri: {}", suggestions.join(", "));
+                            }
+                        }
+                    }
+                }
+            }
+            Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
+            Err(err) => return Err(format!("REPL hatası: {}", err)),
+        }
+    }
+
+    let _ = editor.save_history(&history_path);
+    Ok(())
+}
+
+pub fn run(cli: Cli) -> Result<(), String> {
+    match cli.command {
+        Some(command) => execute_command(&cli.state_path, cli.json, command),
+        None => run_repl(&cli.state_path, cli.json),
     }
 }
 
