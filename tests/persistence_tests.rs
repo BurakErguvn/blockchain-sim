@@ -4,8 +4,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use blockchain_sim::network::BlockchainNetwork;
 use blockchain_sim::block::Block;
+use blockchain_sim::network::BlockchainNetwork;
 use serde::Serialize;
 
 use common::{find_funded_node, mine_genesis, setup_network};

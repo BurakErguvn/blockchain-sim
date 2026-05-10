@@ -329,7 +329,8 @@ impl BlockchainNetwork {
         let schema_version = raw_value
             .get("schema_version")
             .and_then(|value| value.as_u64())
-            .unwrap_or(Self::PERSISTENCE_SCHEMA_VERSION_V1 as u64) as u32;
+            .unwrap_or(Self::PERSISTENCE_SCHEMA_VERSION_V1 as u64)
+            as u32;
 
         match schema_version {
             Self::PERSISTENCE_SCHEMA_VERSION_V1 => {
