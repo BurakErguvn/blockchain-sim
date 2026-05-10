@@ -410,6 +410,91 @@ impl BlockchainNetwork {
         self.rebuild_mempool_policy_from_utxo_set(&reference_utxo_set);
         self.trim_mempool_to_limit();
     }
+
+    fn mine_coinbase_extension(
+        previous_block: &Block,
+        reward: u64,
+        miner_address: String,
+        difficulty: usize,
+        timestamp_offset: u64,
+    ) -> Block {
+        let coinbase = Transaction::new_coinbase(miner_address, reward);
+        let mut block = Block::new(
+            previous_block.index + 1,
+            previous_block.timestamp.saturating_add(timestamp_offset),
+            vec![coinbase],
+            previous_block.hash.clone(),
+        );
+        block.mine_block(difficulty);
+        block
+    }
+
+    pub fn simulate_fork_and_reorg(
+        &mut self,
+        primary_miner_id: usize,
+        secondary_miner_id: usize,
+    ) -> Result<usize, String> {
+        if primary_miner_id >= self.nodes.len() || secondary_miner_id >= self.nodes.len() {
+            return Err("Geçersiz node id".to_string());
+        }
+        if primary_miner_id == secondary_miner_id {
+            return Err("Fork için iki farklı madenci gerekli".to_string());
+        }
+        if self.nodes[primary_miner_id].blockchain.is_empty() {
+            return Err("Fork simülasyonu için en az genesis bloğu gerekli".to_string());
+        }
+
+        let base_chain = self.nodes[primary_miner_id].blockchain.clone();
+        let Some(common_ancestor) = base_chain.last().cloned() else {
+            return Err("Fork başlangıcı belirlenemedi".to_string());
+        };
+
+        let reward = self.nodes[primary_miner_id].mining_reward;
+        let primary_address = self.nodes[primary_miner_id].wallet.get_address().to_string();
+        let secondary_address = self.nodes[secondary_miner_id].wallet.get_address().to_string();
+
+        // Aynı ata üzerinde iki farklı dal üret
+        let short_branch_block =
+            Self::mine_coinbase_extension(&common_ancestor, reward, primary_address, self.difficulty, 1);
+        let long_branch_block_1 = Self::mine_coinbase_extension(
+            &common_ancestor,
+            reward,
+            secondary_address.clone(),
+            self.difficulty,
+            2,
+        );
+        let long_branch_block_2 = Self::mine_coinbase_extension(
+            &long_branch_block_1,
+            reward,
+            secondary_address,
+            self.difficulty,
+            3,
+        );
+
+        let mut short_branch_chain = base_chain.clone();
+        short_branch_chain.push(short_branch_block);
+        let mut long_branch_chain = base_chain;
+        long_branch_chain.push(long_branch_block_1);
+        long_branch_chain.push(long_branch_block_2);
+
+        // Önce kısa dalı yay (fork oluştur)
+        for node in &mut self.nodes {
+            node.update_blockchain(short_branch_chain.clone(), self.difficulty);
+        }
+
+        // Sonra uzun dalı yay (reorg tetikle)
+        let reorg_depth = self
+            .nodes
+            .first()
+            .and_then(|node| node.estimate_reorg_depth(&long_branch_chain))
+            .unwrap_or(0);
+        for node in &mut self.nodes {
+            node.update_blockchain(long_branch_chain.clone(), self.difficulty);
+        }
+        self.reconcile_network_mempool_after_chain_sync();
+
+        Ok(reorg_depth)
+    }
     // İşlemi tüm node'lara yay
     pub fn broadcast_transaction(&mut self, transaction: &Transaction) {
         // Gönderici node'un adresini al (coinbase işlemlerinde gönderici olmaz)

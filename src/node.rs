@@ -36,6 +36,65 @@ impl fmt::Display for Node {
 }
 
 impl Node {
+    fn block_work_score(hash: &str) -> u128 {
+        (hash.chars().take_while(|c| *c == '0').count() as u128).saturating_add(1)
+    }
+
+    fn chain_work_score(chain: &[Block]) -> u128 {
+        chain
+            .iter()
+            .map(|block| Self::block_work_score(&block.hash))
+            .sum()
+    }
+
+    fn find_common_ancestor_index(current: &[Block], candidate: &[Block]) -> Option<usize> {
+        let shared_len = current.len().min(candidate.len());
+        let mut last_common = None;
+
+        for i in 0..shared_len {
+            if current[i].hash == candidate[i].hash {
+                last_common = Some(i);
+            } else {
+                break;
+            }
+        }
+
+        last_common
+    }
+
+    fn should_prefer_candidate_chain(&self, candidate: &[Block]) -> bool {
+        let current_len = self.blockchain.len();
+        let candidate_len = candidate.len();
+        if candidate_len > current_len {
+            return true;
+        }
+        if candidate_len < current_len {
+            return false;
+        }
+
+        let current_work = Self::chain_work_score(&self.blockchain);
+        let candidate_work = Self::chain_work_score(candidate);
+        if candidate_work > current_work {
+            return true;
+        }
+        if candidate_work < current_work {
+            return false;
+        }
+
+        let current_tip = self.blockchain.last().map(|block| &block.hash);
+        let candidate_tip = candidate.last().map(|block| &block.hash);
+        match (current_tip, candidate_tip) {
+            (Some(current), Some(new_tip)) => new_tip > current,
+            (None, Some(_)) => true,
+            _ => false,
+        }
+    }
+
+    pub fn estimate_reorg_depth(&self, candidate: &[Block]) -> Option<usize> {
+        let ancestor = Self::find_common_ancestor_index(&self.blockchain, candidate)?;
+        Some(self.blockchain.len().saturating_sub(ancestor + 1))
+    }
+
     pub fn new(id: usize, genesis_block: Option<Block>) -> Self {
         let wallet = Wallet::new(); // Yeni bir cüzdan oluştur
         let mut blockchain = Vec::new();
@@ -457,22 +516,48 @@ impl Node {
             return;
         }
 
-        // Zincir uzunluğunu kontrol et (en uzun zincir kuralı)
-        if blockchain.len() > self.blockchain.len() {
-            // Daha uzun bir blockchain alındı
-
-            // Yeni blockchain'i ayarla
-            self.blockchain = blockchain.clone();
-
-            // UTXO setini yeniden oluştur
-            self.rebuild_utxo_set();
-
-            // Cüzdan kimliğini koruyarak state'i güncelle
-            self.wallet.rebuild_from_utxo_set(&self.utxo_set);
-
-            // Yeni zincire göre mempool'u temizle
-            self.reconcile_mempool_with_utxo_set();
+        let same_chain = self.blockchain.len() == blockchain.len()
+            && self
+                .blockchain
+                .iter()
+                .zip(blockchain.iter())
+                .all(|(current, candidate)| current.hash == candidate.hash);
+        if same_chain {
+            return;
         }
+
+        if !self.should_prefer_candidate_chain(&blockchain) {
+            return;
+        }
+
+        let reorg_depth = self.estimate_reorg_depth(&blockchain).unwrap_or(0);
+        if reorg_depth > 0 {
+            let old_tip = self
+                .blockchain
+                .last()
+                .map(|block| block.hash.clone())
+                .unwrap_or_else(|| "none".to_string());
+            let new_tip = blockchain
+                .last()
+                .map(|block| block.hash.clone())
+                .unwrap_or_else(|| "none".to_string());
+            println!(
+                "Node {} reorg: depth={}, old_tip={}, new_tip={}",
+                self.id, reorg_depth, old_tip, new_tip
+            );
+        }
+
+        // Yeni blockchain'i ayarla
+        self.blockchain = blockchain.clone();
+
+        // UTXO setini yeniden oluştur
+        self.rebuild_utxo_set();
+
+        // Cüzdan kimliğini koruyarak state'i güncelle
+        self.wallet.rebuild_from_utxo_set(&self.utxo_set);
+
+        // Yeni zincire göre mempool'u temizle
+        self.reconcile_mempool_with_utxo_set();
     }
 
     // UTXO setini blockchain'den yeniden oluştur

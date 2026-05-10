@@ -350,3 +350,83 @@ fn blok_seciminde_yuksek_fee_orani_once_gelmeli() {
         .expect("dusuk fee tx blokta olmali");
     assert!(high_pos < low_pos);
 }
+
+#[test]
+fn esit_uzunlukta_daha_yuksek_is_kaniti_olan_zincir_secilebilmeli() {
+    let mut network = setup_network(3);
+    mine_genesis(&mut network);
+
+    let node_id = 0;
+    let base_chain = network.nodes[node_id].blockchain.clone();
+    let last_block = base_chain.last().expect("genesis olmali");
+    let reward = network.nodes[node_id].mining_reward;
+    let miner_address = network.nodes[node_id].wallet.get_address().to_string();
+
+    let weak_coinbase = Transaction::new_coinbase(miner_address.clone(), reward);
+    let mut weak_block = Block::new(
+        last_block.index + 1,
+        last_block.timestamp + 1,
+        vec![weak_coinbase],
+        last_block.hash.clone(),
+    );
+    weak_block.mine_block(network.difficulty);
+    let mut weak_chain = base_chain.clone();
+    weak_chain.push(weak_block.clone());
+
+    let strong_coinbase = Transaction::new_coinbase(miner_address, reward);
+    let mut strong_block = Block::new(
+        last_block.index + 1,
+        last_block.timestamp + 2,
+        vec![strong_coinbase],
+        last_block.hash.clone(),
+    );
+    strong_block.mine_block(network.difficulty + 1);
+    let mut strong_chain = base_chain;
+    strong_chain.push(strong_block.clone());
+
+    network.nodes[node_id].update_blockchain(weak_chain, network.difficulty);
+    let tip_after_weak = network.nodes[node_id]
+        .blockchain
+        .last()
+        .expect("tip olmali")
+        .hash
+        .clone();
+    assert_eq!(tip_after_weak, weak_block.hash);
+
+    network.nodes[node_id].update_blockchain(strong_chain, network.difficulty);
+    let tip_after_strong = network.nodes[node_id]
+        .blockchain
+        .last()
+        .expect("tip olmali")
+        .hash
+        .clone();
+    assert_eq!(tip_after_strong, strong_block.hash);
+}
+
+#[test]
+fn fork_reorg_simulasyonu_tum_nodelari_kanonik_zincire_tasimali() {
+    let mut network = setup_network(4);
+    mine_genesis(&mut network);
+
+    let reorg_depth = network
+        .simulate_fork_and_reorg(0, 1)
+        .expect("fork/reorg simulasyonu calismali");
+    assert_eq!(reorg_depth, 1);
+
+    let canonical_tip = network.nodes[0]
+        .blockchain
+        .last()
+        .expect("tip olmali")
+        .hash
+        .clone();
+    let canonical_len = network.nodes[0].blockchain.len();
+    assert_eq!(canonical_len, 3);
+
+    for node in &network.nodes {
+        assert_eq!(node.blockchain.len(), canonical_len);
+        assert_eq!(
+            node.blockchain.last().expect("tip olmali").hash,
+            canonical_tip
+        );
+    }
+}
