@@ -450,12 +450,23 @@ impl BlockchainNetwork {
         };
 
         let reward = self.nodes[primary_miner_id].mining_reward;
-        let primary_address = self.nodes[primary_miner_id].wallet.get_address().to_string();
-        let secondary_address = self.nodes[secondary_miner_id].wallet.get_address().to_string();
+        let primary_address = self.nodes[primary_miner_id]
+            .wallet
+            .get_address()
+            .to_string();
+        let secondary_address = self.nodes[secondary_miner_id]
+            .wallet
+            .get_address()
+            .to_string();
 
         // Aynı ata üzerinde iki farklı dal üret
-        let short_branch_block =
-            Self::mine_coinbase_extension(&common_ancestor, reward, primary_address, self.difficulty, 1);
+        let short_branch_block = Self::mine_coinbase_extension(
+            &common_ancestor,
+            reward,
+            primary_address,
+            self.difficulty,
+            1,
+        );
         let long_branch_block_1 = Self::mine_coinbase_extension(
             &common_ancestor,
             reward,
