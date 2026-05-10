@@ -484,7 +484,10 @@ fn print_repl_help() {
 }
 
 fn suggest_root_commands(token: &str, alias_names: &[String]) -> Vec<String> {
-    let mut pool: Vec<String> = ROOT_COMMANDS.iter().map(|command| (*command).to_string()).collect();
+    let mut pool: Vec<String> = ROOT_COMMANDS
+        .iter()
+        .map(|command| (*command).to_string())
+        .collect();
     pool.extend(alias_names.iter().cloned());
     pool.sort();
     pool.dedup();
@@ -504,7 +507,10 @@ fn suggest_root_commands(token: &str, alias_names: &[String]) -> Vec<String> {
     candidates.into_iter().map(|(_, command)| command).collect()
 }
 
-fn expand_alias_tokens(tokens: Vec<String>, alias_store: &AliasStore) -> Result<Vec<String>, String> {
+fn expand_alias_tokens(
+    tokens: Vec<String>,
+    alias_store: &AliasStore,
+) -> Result<Vec<String>, String> {
     if let Some(first) = tokens.first() {
         if let Some(expansion) = alias_store.aliases.get(first) {
             let mut expanded = shell_words::split(expansion).map_err(|err| err.to_string())?;
@@ -898,62 +904,59 @@ fn execute_command(
                 name,
                 primary,
                 secondary,
-            } => {
-                match name.as_str() {
-                    "quickstart" => {
-                        let mut network = if Path::new(state_path).exists() {
-                            load_state(state_path)?
-                        } else {
-                            bootstrap_network(&InitArgs {
-                                nodes: 5,
-                                difficulty: 2,
-                                block_time: 60,
-                                force: true,
-                            })?
-                        };
-                        if network.current_val_id().is_none() {
-                            network.select_random_validator();
-                        }
-                        let _ = network.mine_block().ok_or("Senaryo için blok üretilemedi")?;
-                        save_state(&network, state_path)?;
-                        let result = ActionResult {
-                            message: "quickstart senaryosu tamamlandı".to_string(),
-                        };
-                        if json {
-                            print_json(&result)?;
-                        } else {
-                            println!("{}", result.message);
-                        }
-                        Ok(())
+            } => match name.as_str() {
+                "quickstart" => {
+                    let mut network = if Path::new(state_path).exists() {
+                        load_state(state_path)?
+                    } else {
+                        bootstrap_network(&InitArgs {
+                            nodes: 5,
+                            difficulty: 2,
+                            block_time: 60,
+                            force: true,
+                        })?
+                    };
+                    if network.current_val_id().is_none() {
+                        network.select_random_validator();
                     }
-                    "fork-reorg" => {
-                        let mut network = load_state(state_path)?;
-                        let reorg_depth = network
-                            .simulate_fork_and_reorg(primary, secondary)
-                            .map_err(|err| format!("Senaryo hatası: {}", err))?;
-                        save_state(&network, state_path)?;
-                        #[derive(Serialize)]
-                        struct ScenarioRunResult {
-                            scenario: String,
-                            reorg_depth: usize,
-                        }
-                        let result = ScenarioRunResult {
-                            scenario: name,
-                            reorg_depth,
-                        };
-                        if json {
-                            print_json(&result)?;
-                        } else {
-                            println!(
-                                "fork-reorg tamamlandı. Reorg depth: {}",
-                                result.reorg_depth
-                            );
-                        }
-                        Ok(())
+                    let _ = network
+                        .mine_block()
+                        .ok_or("Senaryo için blok üretilemedi")?;
+                    save_state(&network, state_path)?;
+                    let result = ActionResult {
+                        message: "quickstart senaryosu tamamlandı".to_string(),
+                    };
+                    if json {
+                        print_json(&result)?;
+                    } else {
+                        println!("{}", result.message);
                     }
-                    _ => Err(format!("Bilinmeyen senaryo: {}", name)),
+                    Ok(())
                 }
-            }
+                "fork-reorg" => {
+                    let mut network = load_state(state_path)?;
+                    let reorg_depth = network
+                        .simulate_fork_and_reorg(primary, secondary)
+                        .map_err(|err| format!("Senaryo hatası: {}", err))?;
+                    save_state(&network, state_path)?;
+                    #[derive(Serialize)]
+                    struct ScenarioRunResult {
+                        scenario: String,
+                        reorg_depth: usize,
+                    }
+                    let result = ScenarioRunResult {
+                        scenario: name,
+                        reorg_depth,
+                    };
+                    if json {
+                        print_json(&result)?;
+                    } else {
+                        println!("fork-reorg tamamlandı. Reorg depth: {}", result.reorg_depth);
+                    }
+                    Ok(())
+                }
+                _ => Err(format!("Bilinmeyen senaryo: {}", name)),
+            },
         },
         Command::Alias { command } => match command {
             AliasCommand::List => {
@@ -974,7 +977,9 @@ fn execute_command(
                     return Err("Alias adı yerleşik komutlarla çakışamaz".to_string());
                 }
                 let mut alias_store = load_alias_store(state_path)?;
-                alias_store.aliases.insert(name.clone(), expansion.join(" "));
+                alias_store
+                    .aliases
+                    .insert(name.clone(), expansion.join(" "));
                 save_alias_store(state_path, &alias_store)?;
                 let result = ActionResult {
                     message: format!("Alias eklendi: {}", name),
@@ -1062,7 +1067,8 @@ fn execute_command(
                     return Err(format!("Macro bulunamadı: {}", name));
                 };
                 for command_line in commands {
-                    let mut tokens = shell_words::split(command_line).map_err(|err| err.to_string())?;
+                    let mut tokens =
+                        shell_words::split(command_line).map_err(|err| err.to_string())?;
                     let alias_store = load_alias_store(state_path)?;
                     tokens = expand_alias_tokens(tokens, &alias_store)?;
                     let mut args = vec![
@@ -1172,7 +1178,8 @@ fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
                             {
                                 println!("Hata: {}", err);
                             }
-                            let refreshed_alias_store = load_alias_store(state_path).unwrap_or_default();
+                            let refreshed_alias_store =
+                                load_alias_store(state_path).unwrap_or_default();
                             let refreshed_alias_names =
                                 refreshed_alias_store.aliases.keys().cloned().collect();
                             editor.set_helper(Some(CliReplHelper::new(refreshed_alias_names)));
@@ -1228,9 +1235,7 @@ mod tests {
     #[test]
     fn alias_genislemesi_ilk_token_uzerinden_calismali() {
         let mut store = AliasStore::default();
-        store
-            .aliases
-            .insert("st".to_string(), "status".to_string());
+        store.aliases.insert("st".to_string(), "status".to_string());
         let tokens = vec!["st".to_string()];
         let expanded = expand_alias_tokens(tokens, &store).expect("alias genislemeli");
         assert_eq!(expanded, vec!["status".to_string()]);
