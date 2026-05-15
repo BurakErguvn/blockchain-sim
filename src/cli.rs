@@ -12,7 +12,7 @@ use std::fs;
 use std::path::Path;
 use strsim::jaro_winkler;
 
-use crate::config::Settings;
+use crate::config::{Settings, SettingsLoadOptions};
 use crate::network::BlockchainNetwork;
 
 #[derive(Debug, Parser)]
@@ -24,8 +24,10 @@ use crate::network::BlockchainNetwork;
 pub struct Cli {
     #[arg(long, global = true)]
     pub state_path: Option<String>,
-    #[arg(long, default_value = Settings::DEFAULT_CONFIG_PATH, global = true)]
-    pub config_path: String,
+    #[arg(long, global = true)]
+    pub config_path: Option<String>,
+    #[arg(long, global = true)]
+    pub profile: Option<String>,
     #[arg(long, global = true)]
     pub json: bool,
     #[command(subcommand)]
@@ -357,7 +359,10 @@ fn resolve_init_args(args: &InitArgs, settings: &Settings) -> Result<EffectiveIn
 }
 
 fn resolve_cli_context(cli: &Cli) -> Result<(Settings, String), String> {
-    let settings = Settings::load_with_path(Some(&cli.config_path))?;
+    let settings = Settings::load(SettingsLoadOptions {
+        config_path: cli.config_path.as_deref(),
+        profile: cli.profile.as_deref(),
+    })?;
     let state_path = cli
         .state_path
         .clone()
@@ -560,14 +565,15 @@ fn expand_alias_tokens(
 
 fn execute_command(
     state_path: &str,
-    config_path: &str,
+    config_path_override: Option<&str>,
+    profile_override: Option<&str>,
     settings: &Settings,
     json: bool,
     command: Command,
     macro_depth: usize,
 ) -> Result<(), String> {
     match command {
-        Command::Repl => run_repl(state_path, config_path, json),
+        Command::Repl => run_repl(state_path, config_path_override, profile_override, json),
         Command::Init(args) => {
             let effective_args = resolve_init_args(&args, settings)?;
             let state_path_ref = Path::new(state_path);
@@ -1114,9 +1120,15 @@ fn execute_command(
                         "sim-cli".to_string(),
                         "--state-path".to_string(),
                         state_path.to_string(),
-                        "--config-path".to_string(),
-                        config_path.to_string(),
                     ];
+                    if let Some(config_path) = config_path_override {
+                        args.push("--config-path".to_string());
+                        args.push(config_path.to_string());
+                    }
+                    if let Some(profile) = profile_override {
+                        args.push("--profile".to_string());
+                        args.push(profile.to_string());
+                    }
                     if json {
                         args.push("--json".to_string());
                     }
@@ -1125,13 +1137,15 @@ fn execute_command(
                     let parsed = Cli::try_parse_from(args).map_err(|err| err.to_string())?;
                     let (parsed_settings, parsed_state_path) = resolve_cli_context(&parsed)?;
                     let parsed_config_path = parsed.config_path.clone();
+                    let parsed_profile = parsed.profile.clone();
                     let parsed_json = parsed.json;
                     let Some(command) = parsed.command else {
                         continue;
                     };
                     execute_command(
                         &parsed_state_path,
-                        &parsed_config_path,
+                        parsed_config_path.as_deref(),
+                        parsed_profile.as_deref(),
                         &parsed_settings,
                         parsed_json,
                         command,
@@ -1152,7 +1166,12 @@ fn execute_command(
     }
 }
 
-fn run_repl(state_path: &str, config_path: &str, json: bool) -> Result<(), String> {
+fn run_repl(
+    state_path: &str,
+    config_path_override: Option<&str>,
+    profile_override: Option<&str>,
+    json: bool,
+) -> Result<(), String> {
     let history_path = history_file_path(state_path);
     if let Some(parent) = Path::new(&history_path).parent() {
         fs::create_dir_all(parent).map_err(|err| err.to_string())?;
@@ -1212,9 +1231,15 @@ fn run_repl(state_path: &str, config_path: &str, json: bool) -> Result<(), Strin
                     "sim-cli".to_string(),
                     "--state-path".to_string(),
                     state_path.to_string(),
-                    "--config-path".to_string(),
-                    config_path.to_string(),
                 ];
+                if let Some(config_path) = config_path_override {
+                    args.push("--config-path".to_string());
+                    args.push(config_path.to_string());
+                }
+                if let Some(profile) = profile_override {
+                    args.push("--profile".to_string());
+                    args.push(profile.to_string());
+                }
                 if json {
                     args.push("--json".to_string());
                 }
@@ -1231,6 +1256,7 @@ fn run_repl(state_path: &str, config_path: &str, json: bool) -> Result<(), Strin
                                 }
                             };
                         let parsed_config_path = parsed.config_path.clone();
+                        let parsed_profile = parsed.profile.clone();
                         let parsed_json = parsed.json;
 
                         match parsed.command {
@@ -1240,7 +1266,8 @@ fn run_repl(state_path: &str, config_path: &str, json: bool) -> Result<(), Strin
                             Some(command) => {
                                 if let Err(err) = execute_command(
                                     &parsed_state_path,
-                                    &parsed_config_path,
+                                    parsed_config_path.as_deref(),
+                                    parsed_profile.as_deref(),
                                     &parsed_settings,
                                     parsed_json,
                                     command,
@@ -1279,16 +1306,24 @@ fn run_repl(state_path: &str, config_path: &str, json: bool) -> Result<(), Strin
 
 pub fn run(cli: Cli) -> Result<(), String> {
     let (settings, resolved_state_path) = resolve_cli_context(&cli)?;
+    let config_path_override = cli.config_path.clone();
+    let profile_override = cli.profile.clone();
     match cli.command {
         Some(command) => execute_command(
             &resolved_state_path,
-            &cli.config_path,
+            config_path_override.as_deref(),
+            profile_override.as_deref(),
             &settings,
             cli.json,
             command,
             0,
         ),
-        None => run_repl(&resolved_state_path, &cli.config_path, cli.json),
+        None => run_repl(
+            &resolved_state_path,
+            config_path_override.as_deref(),
+            profile_override.as_deref(),
+            cli.json,
+        ),
     }
 }
 
