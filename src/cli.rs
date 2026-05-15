@@ -12,6 +12,7 @@ use std::fs;
 use std::path::Path;
 use strsim::jaro_winkler;
 
+use crate::config::Settings;
 use crate::network::BlockchainNetwork;
 
 #[derive(Debug, Parser)]
@@ -21,12 +22,10 @@ use crate::network::BlockchainNetwork;
     about = "Blockchain-sim için modern komut satırı aracı"
 )]
 pub struct Cli {
-    #[arg(
-        long,
-        default_value = BlockchainNetwork::DEFAULT_STATE_PATH,
-        global = true
-    )]
-    pub state_path: String,
+    #[arg(long, global = true)]
+    pub state_path: Option<String>,
+    #[arg(long, default_value = Settings::DEFAULT_CONFIG_PATH, global = true)]
+    pub config_path: String,
     #[arg(long, global = true)]
     pub json: bool,
     #[command(subcommand)]
@@ -78,12 +77,12 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    #[arg(long, default_value_t = 5)]
-    pub nodes: usize,
-    #[arg(long, default_value_t = 2)]
-    pub difficulty: usize,
-    #[arg(long, default_value_t = 60)]
-    pub block_time: u64,
+    #[arg(long)]
+    pub nodes: Option<usize>,
+    #[arg(long)]
+    pub difficulty: Option<usize>,
+    #[arg(long)]
+    pub block_time: Option<u64>,
     #[arg(long)]
     pub force: bool,
 }
@@ -256,6 +255,13 @@ const ROOT_COMMANDS: &[&str] = &[
 ];
 const MAX_MACRO_DEPTH: usize = 5;
 
+#[derive(Debug, Clone, Copy)]
+struct EffectiveInitArgs {
+    nodes: usize,
+    difficulty: usize,
+    block_time: u64,
+}
+
 struct CliReplHelper {
     alias_names: Vec<String>,
     hinter: HistoryHinter,
@@ -328,7 +334,38 @@ fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
     Ok(())
 }
 
-fn bootstrap_network(args: &InitArgs) -> Result<BlockchainNetwork, String> {
+fn resolve_init_args(args: &InitArgs, settings: &Settings) -> Result<EffectiveInitArgs, String> {
+    let effective = EffectiveInitArgs {
+        nodes: args.nodes.unwrap_or(settings.app.initial_node_count),
+        difficulty: args.difficulty.unwrap_or(settings.network.difficulty),
+        block_time: args
+            .block_time
+            .unwrap_or(settings.network.block_time_seconds),
+    };
+
+    if effective.nodes == 0 {
+        return Err("En az 1 node gerekli".to_string());
+    }
+    if effective.difficulty == 0 {
+        return Err("difficulty sıfırdan büyük olmalı".to_string());
+    }
+    if effective.block_time == 0 {
+        return Err("block_time sıfırdan büyük olmalı".to_string());
+    }
+
+    Ok(effective)
+}
+
+fn resolve_cli_context(cli: &Cli) -> Result<(Settings, String), String> {
+    let settings = Settings::load_with_path(Some(&cli.config_path))?;
+    let state_path = cli
+        .state_path
+        .clone()
+        .unwrap_or_else(|| settings.persistence.state_path.clone());
+    Ok((settings, state_path))
+}
+
+fn bootstrap_network(args: EffectiveInitArgs) -> Result<BlockchainNetwork, String> {
     if args.nodes == 0 {
         return Err("En az 1 node gerekli".to_string());
     }
@@ -523,13 +560,16 @@ fn expand_alias_tokens(
 
 fn execute_command(
     state_path: &str,
+    config_path: &str,
+    settings: &Settings,
     json: bool,
     command: Command,
     macro_depth: usize,
 ) -> Result<(), String> {
     match command {
-        Command::Repl => run_repl(state_path, json),
+        Command::Repl => run_repl(state_path, config_path, json),
         Command::Init(args) => {
+            let effective_args = resolve_init_args(&args, settings)?;
             let state_path_ref = Path::new(state_path);
             if state_path_ref.exists() && !args.force {
                 return Err(format!(
@@ -538,13 +578,13 @@ fn execute_command(
                 ));
             }
 
-            let network = bootstrap_network(&args)?;
+            let network = bootstrap_network(effective_args)?;
             save_state(&network, state_path)?;
 
             let message = ActionResult {
                 message: format!(
                     "Ağ hazırlandı: {} node, difficulty {}, block_time {}s",
-                    args.nodes, args.difficulty, args.block_time
+                    effective_args.nodes, effective_args.difficulty, effective_args.block_time
                 ),
             };
             if json {
@@ -909,11 +949,10 @@ fn execute_command(
                     let mut network = if Path::new(state_path).exists() {
                         load_state(state_path)?
                     } else {
-                        bootstrap_network(&InitArgs {
-                            nodes: 5,
-                            difficulty: 2,
-                            block_time: 60,
-                            force: true,
+                        bootstrap_network(EffectiveInitArgs {
+                            nodes: settings.app.initial_node_count,
+                            difficulty: settings.network.difficulty,
+                            block_time: settings.network.block_time_seconds,
                         })?
                     };
                     if network.current_val_id().is_none() {
@@ -1075,6 +1114,8 @@ fn execute_command(
                         "sim-cli".to_string(),
                         "--state-path".to_string(),
                         state_path.to_string(),
+                        "--config-path".to_string(),
+                        config_path.to_string(),
                     ];
                     if json {
                         args.push("--json".to_string());
@@ -1082,10 +1123,20 @@ fn execute_command(
                     args.extend(tokens);
 
                     let parsed = Cli::try_parse_from(args).map_err(|err| err.to_string())?;
+                    let (parsed_settings, parsed_state_path) = resolve_cli_context(&parsed)?;
+                    let parsed_config_path = parsed.config_path.clone();
+                    let parsed_json = parsed.json;
                     let Some(command) = parsed.command else {
                         continue;
                     };
-                    execute_command(&parsed.state_path, parsed.json, command, macro_depth + 1)?;
+                    execute_command(
+                        &parsed_state_path,
+                        &parsed_config_path,
+                        &parsed_settings,
+                        parsed_json,
+                        command,
+                        macro_depth + 1,
+                    )?;
                 }
                 let result = ActionResult {
                     message: format!("Macro çalıştırıldı: {}", name),
@@ -1101,7 +1152,7 @@ fn execute_command(
     }
 }
 
-fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
+fn run_repl(state_path: &str, config_path: &str, json: bool) -> Result<(), String> {
     let history_path = history_file_path(state_path);
     if let Some(parent) = Path::new(&history_path).parent() {
         fs::create_dir_all(parent).map_err(|err| err.to_string())?;
@@ -1161,6 +1212,8 @@ fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
                     "sim-cli".to_string(),
                     "--state-path".to_string(),
                     state_path.to_string(),
+                    "--config-path".to_string(),
+                    config_path.to_string(),
                 ];
                 if json {
                     args.push("--json".to_string());
@@ -1168,24 +1221,42 @@ fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
                 args.extend(tokens.clone());
 
                 match Cli::try_parse_from(args) {
-                    Ok(parsed) => match parsed.command {
-                        Some(Command::Repl) => {
-                            println!("Zaten REPL modundasın.");
-                        }
-                        Some(command) => {
-                            if let Err(err) =
-                                execute_command(&parsed.state_path, parsed.json, command, 0)
-                            {
-                                println!("Hata: {}", err);
+                    Ok(parsed) => {
+                        let (parsed_settings, parsed_state_path) =
+                            match resolve_cli_context(&parsed) {
+                                Ok(context) => context,
+                                Err(err) => {
+                                    println!("Hata: {}", err);
+                                    continue;
+                                }
+                            };
+                        let parsed_config_path = parsed.config_path.clone();
+                        let parsed_json = parsed.json;
+
+                        match parsed.command {
+                            Some(Command::Repl) => {
+                                println!("Zaten REPL modundasın.");
                             }
-                            let refreshed_alias_store =
-                                load_alias_store(state_path).unwrap_or_default();
-                            let refreshed_alias_names =
-                                refreshed_alias_store.aliases.keys().cloned().collect();
-                            editor.set_helper(Some(CliReplHelper::new(refreshed_alias_names)));
+                            Some(command) => {
+                                if let Err(err) = execute_command(
+                                    &parsed_state_path,
+                                    &parsed_config_path,
+                                    &parsed_settings,
+                                    parsed_json,
+                                    command,
+                                    0,
+                                ) {
+                                    println!("Hata: {}", err);
+                                }
+                                let refreshed_alias_store =
+                                    load_alias_store(state_path).unwrap_or_default();
+                                let refreshed_alias_names =
+                                    refreshed_alias_store.aliases.keys().cloned().collect();
+                                editor.set_helper(Some(CliReplHelper::new(refreshed_alias_names)));
+                            }
+                            None => print_repl_help(),
                         }
-                        None => print_repl_help(),
-                    },
+                    }
                     Err(err) => {
                         println!("{}", err);
                         if let Some(first) = tokens.first() {
@@ -1207,9 +1278,17 @@ fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
 }
 
 pub fn run(cli: Cli) -> Result<(), String> {
+    let (settings, resolved_state_path) = resolve_cli_context(&cli)?;
     match cli.command {
-        Some(command) => execute_command(&cli.state_path, cli.json, command, 0),
-        None => run_repl(&cli.state_path, cli.json),
+        Some(command) => execute_command(
+            &resolved_state_path,
+            &cli.config_path,
+            &settings,
+            cli.json,
+            command,
+            0,
+        ),
+        None => run_repl(&resolved_state_path, &cli.config_path, cli.json),
     }
 }
 

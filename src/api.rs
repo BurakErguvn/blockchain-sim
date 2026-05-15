@@ -11,6 +11,7 @@ use crate::network::BlockchainNetwork;
 #[derive(Clone)]
 pub struct ApiState {
     pub network: Arc<Mutex<BlockchainNetwork>>,
+    pub state_path: String,
 }
 
 #[derive(Serialize)]
@@ -94,8 +95,11 @@ pub struct MineBlockResponse {
     transaction_count: usize,
 }
 
-pub fn router(network: Arc<Mutex<BlockchainNetwork>>) -> Router {
-    let state = ApiState { network };
+pub fn router(network: Arc<Mutex<BlockchainNetwork>>, state_path: impl Into<String>) -> Router {
+    let state = ApiState {
+        network,
+        state_path: state_path.into(),
+    };
 
     Router::new()
         .route("/health", get(health))
@@ -273,7 +277,7 @@ async fn create_transaction(
         return Err(ApiHttpError::bad_request("İşlem oluşturulamadı"));
     };
 
-    if let Err(err) = network.save_to_disk(BlockchainNetwork::DEFAULT_STATE_PATH) {
+    if let Err(err) = network.save_to_disk(&state.state_path) {
         return Err(ApiHttpError::internal(format!(
             "State kaydedilemedi: {}",
             err
@@ -302,7 +306,7 @@ async fn mine_block(
         return Err(ApiHttpError::bad_request("Blok üretilemedi"));
     };
 
-    if let Err(err) = network.save_to_disk(BlockchainNetwork::DEFAULT_STATE_PATH) {
+    if let Err(err) = network.save_to_disk(&state.state_path) {
         return Err(ApiHttpError::internal(format!(
             "State kaydedilemedi: {}",
             err

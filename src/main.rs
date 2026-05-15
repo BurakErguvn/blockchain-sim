@@ -7,6 +7,7 @@ use std::time::Duration;
 use std::time::SystemTime;
 
 use blockchain_sim::block::Block;
+use blockchain_sim::config::Settings;
 use blockchain_sim::network::BlockchainNetwork;
 
 // Blok oluşturulduğunda gönderilecek mesaj için kanal
@@ -17,7 +18,17 @@ struct BlockchainMessage {
 }
 
 fn main() {
-    let state_path = BlockchainNetwork::DEFAULT_STATE_PATH;
+    let settings = match Settings::load_default() {
+        Ok(settings) => settings,
+        Err(err) => {
+            println!(
+                "Config yüklenemedi: {}. Varsayılan ayarlarla devam ediliyor.",
+                err
+            );
+            Settings::default()
+        }
+    };
+    let state_path = settings.persistence.state_path.clone();
 
     // Blockchain ağını oluştur
     let network = Arc::new(Mutex::new(BlockchainNetwork::new()));
@@ -97,7 +108,7 @@ fn main() {
         let mut network_lock = network.lock().unwrap();
         let mut loaded_from_disk = false;
 
-        match BlockchainNetwork::load_from_disk(state_path) {
+        match BlockchainNetwork::load_from_disk(&state_path) {
             Ok(loaded_network) => {
                 *network_lock = loaded_network;
                 loaded_from_disk = true;
@@ -112,18 +123,15 @@ fn main() {
             }
         }
 
+        network_lock.set_difficulty(settings.network.difficulty);
+        network_lock.set_block_time(settings.network.block_time_seconds);
+
         if !loaded_from_disk {
-            // Madencilik zorluğunu ayarla (2 = hash'in başında 2 tane 0 olmalı)
-            network_lock.set_difficulty(2);
-
-            // Block time'ı ayarla (gerçekçi bir simülasyon için)
-            network_lock.set_block_time(60); // 60 saniye
-
             println!("Blockchain simülasyonu başlatılıyor...");
 
             // 5 tane node oluştur
             println!("\n--- NODE'LAR OLUŞTURULUYOR ---");
-            for _i in 0..5 {
+            for _i in 0..settings.app.initial_node_count {
                 let node_id = network_lock.add_node();
                 println!("Node {} oluşturuldu", node_id);
             }
@@ -173,7 +181,7 @@ fn main() {
             network_lock.print_network_state();
         }
 
-        if let Err(err) = network_lock.save_to_disk(state_path) {
+        if let Err(err) = network_lock.save_to_disk(&state_path) {
             println!("Başlangıç state'i diske yazılamadı: {}", err);
         }
 
@@ -194,6 +202,7 @@ fn main() {
     // Blockchain ağı için bir klon oluştur
     let network_clone = Arc::clone(&network);
     let block_sender_clone = block_sender.clone();
+    let state_path_for_mining = state_path.clone();
 
     // Madencilik thread'i
     let mining_thread = thread::spawn(move || {
@@ -236,7 +245,7 @@ fn main() {
                     // Son blok zamanını güncelle
                     last_block_time = now;
 
-                    if let Err(err) = network_lock.save_to_disk(state_path) {
+                    if let Err(err) = network_lock.save_to_disk(&state_path_for_mining) {
                         println!("State diske yazılamadı: {}", err);
                     }
                 }
@@ -340,7 +349,7 @@ fn main() {
 
                     if let Some(_) = tx {
                         println!("İşlem oluşturuldu ve mempool'a eklendi");
-                        if let Err(err) = network_lock.save_to_disk(state_path) {
+                        if let Err(err) = network_lock.save_to_disk(&state_path) {
                             println!("State diske yazılamadı: {}", err);
                         }
                     } else {
@@ -410,7 +419,7 @@ fn main() {
                         Ok(_) => println!("Madencilik durduruldu"),
                         Err(e) => println!("Madencilik durdurulamadı: {}", e),
                     }
-                    if let Err(err) = network_lock.save_to_disk(state_path) {
+                    if let Err(err) = network_lock.save_to_disk(&state_path) {
                         println!("State diske yazılamadı: {}", err);
                     }
                 }
