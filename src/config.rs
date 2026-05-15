@@ -401,10 +401,24 @@ mod tests {
         previous
     }
 
-    fn unset_env_var(key: &str) -> Option<String> {
-        let previous = env::var(key).ok();
-        env::remove_var(key);
-        previous
+    fn clear_config_env_vars() -> Vec<(&'static str, Option<String>)> {
+        let keys = [
+            Settings::ENV_CONFIG_PATH,
+            Settings::ENV_PROFILE,
+            Settings::ENV_APP_INITIAL_NODE_COUNT,
+            Settings::ENV_NETWORK_DIFFICULTY,
+            Settings::ENV_NETWORK_BLOCK_TIME_SECONDS,
+            Settings::ENV_PERSISTENCE_STATE_PATH,
+            Settings::ENV_API_BIND_HOST,
+            Settings::ENV_API_BIND_PORT,
+        ];
+
+        let mut previous_values = Vec::with_capacity(keys.len());
+        for key in keys {
+            previous_values.push((key, env::var(key).ok()));
+            env::remove_var(key);
+        }
+        previous_values
     }
 
     fn restore_env_var(key: &str, previous: Option<String>) {
@@ -414,11 +428,21 @@ mod tests {
         }
     }
 
+    fn restore_config_env_vars(previous_values: Vec<(&'static str, Option<String>)>) {
+        for (key, previous) in previous_values {
+            restore_env_var(key, previous);
+        }
+    }
+
     #[test]
     fn missing_config_file_should_fall_back_to_defaults() {
+        let guard = env_lock().lock().expect("env lock should be acquired");
+        let previous_values = clear_config_env_vars();
         let path = unique_temp_path("missing_config");
         let settings = Settings::load_from_file(path.to_string_lossy().as_ref())
             .expect("defaults should load");
+        restore_config_env_vars(previous_values);
+        drop(guard);
 
         assert_eq!(settings.app.initial_node_count, 5);
         assert_eq!(settings.network.difficulty, 2);
@@ -430,6 +454,8 @@ mod tests {
 
     #[test]
     fn config_file_should_override_defaults() {
+        let guard = env_lock().lock().expect("env lock should be acquired");
+        let previous_values = clear_config_env_vars();
         let path = unique_temp_path("override_config");
         let content = r#"
 [app]
@@ -458,11 +484,15 @@ bind_port = 4040
         assert_eq!(settings.api.bind_host, "127.0.0.1");
         assert_eq!(settings.api.bind_port, 4040);
 
+        restore_config_env_vars(previous_values);
+        drop(guard);
         let _ = fs::remove_file(path);
     }
 
     #[test]
     fn profile_file_should_override_default_file_values() {
+        let guard = env_lock().lock().expect("env lock should be acquired");
+        let previous_values = clear_config_env_vars();
         let root = unique_temp_dir("profile_override");
         let default_path = root.join("config/default.toml");
         let profile_path = root.join("config/dev.toml");
@@ -503,12 +533,15 @@ bind_port = 5050
         assert_eq!(settings.network.block_time_seconds, 90);
         assert_eq!(settings.api.bind_port, 5050);
 
+        restore_config_env_vars(previous_values);
+        drop(guard);
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
     fn env_should_override_profile_and_default_values() {
         let guard = env_lock().lock().expect("env lock should be acquired");
+        let previous_values = clear_config_env_vars();
         let root = unique_temp_dir("env_override");
         let default_path = root.join("config/default.toml");
         let profile_path = root.join("config/prod.toml");
@@ -545,6 +578,7 @@ difficulty = 5
         restore_env_var(Settings::ENV_NETWORK_DIFFICULTY, prev_diff);
         restore_env_var(Settings::ENV_NETWORK_BLOCK_TIME_SECONDS, prev_block_time);
         restore_env_var(Settings::ENV_API_BIND_PORT, prev_port);
+        restore_config_env_vars(previous_values);
         drop(guard);
 
         assert_eq!(settings.network.difficulty, 11);
@@ -557,6 +591,7 @@ difficulty = 5
     #[test]
     fn cli_options_should_take_precedence_over_environment() {
         let guard = env_lock().lock().expect("env lock should be acquired");
+        let previous_values = clear_config_env_vars();
         let root = unique_temp_dir("cli_precedence");
         let env_default_path = root.join("config/default.toml");
         let env_profile_path = root.join("config/dev.toml");
@@ -606,6 +641,7 @@ difficulty = 9
 
         restore_env_var(Settings::ENV_CONFIG_PATH, prev_config_path);
         restore_env_var(Settings::ENV_PROFILE, prev_profile);
+        restore_config_env_vars(previous_values);
         drop(guard);
 
         assert_eq!(settings.network.difficulty, 9);
@@ -616,11 +652,13 @@ difficulty = 9
     #[test]
     fn invalid_env_value_should_return_error() {
         let guard = env_lock().lock().expect("env lock should be acquired");
+        let previous_values = clear_config_env_vars();
         let previous = set_env_var(Settings::ENV_API_BIND_PORT, "not-a-port");
 
         let result = Settings::load_default();
 
         restore_env_var(Settings::ENV_API_BIND_PORT, previous);
+        restore_config_env_vars(previous_values);
         drop(guard);
 
         assert!(result.is_err());
