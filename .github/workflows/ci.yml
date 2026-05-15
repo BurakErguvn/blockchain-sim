@@ -90,3 +90,25 @@ jobs:
 
       - name: Check dependency bans and advisories
         run: cargo deny check advisories bans
+
+  smoke:
+    name: CLI Smoke Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build CLI binary
+        run: cargo build --bin sim_cli
+
+      - name: Smoke test config validate
+        run: cargo run --bin sim_cli -- config validate
+
+      - name: Smoke test config paths
+        run: cargo run --bin sim_cli -- config paths

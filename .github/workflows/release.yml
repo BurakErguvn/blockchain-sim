@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-package:
+    name: Build and Package Binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build --release --bin sim_cli --bin api_server
+
+      - name: Package release artifacts
+        run: |
+          mkdir -p dist
+          cp target/release/sim_cli dist/sim_cli
+          cp target/release/api_server dist/api_server
+          tar -czf dist/blockchain-sim-linux-x86_64.tar.gz -C dist sim_cli api_server
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum sim_cli api_server blockchain-sim-linux-x86_64.tar.gz > SHA256SUMS.txt
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-x86_64
+          path: dist/*
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/sim_cli
+            dist/api_server
+            dist/blockchain-sim-linux-x86_64.tar.gz
+            dist/SHA256SUMS.txt
