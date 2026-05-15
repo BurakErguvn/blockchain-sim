@@ -12,6 +12,7 @@ use std::fs;
 use std::path::Path;
 use strsim::jaro_winkler;
 
+use crate::config::{Settings, SettingsLoadOptions, SettingsResolution};
 use crate::network::BlockchainNetwork;
 
 #[derive(Debug, Parser)]
@@ -21,12 +22,12 @@ use crate::network::BlockchainNetwork;
     about = "Blockchain-sim için modern komut satırı aracı"
 )]
 pub struct Cli {
-    #[arg(
-        long,
-        default_value = BlockchainNetwork::DEFAULT_STATE_PATH,
-        global = true
-    )]
-    pub state_path: String,
+    #[arg(long, global = true)]
+    pub state_path: Option<String>,
+    #[arg(long, global = true)]
+    pub config_path: Option<String>,
+    #[arg(long, global = true)]
+    pub profile: Option<String>,
     #[arg(long, global = true)]
     pub json: bool,
     #[command(subcommand)]
@@ -37,6 +38,10 @@ pub struct Cli {
 pub enum Command {
     Repl,
     Init(InitArgs),
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     Status,
     Nodes {
         #[command(subcommand)]
@@ -78,12 +83,12 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    #[arg(long, default_value_t = 5)]
-    pub nodes: usize,
-    #[arg(long, default_value_t = 2)]
-    pub difficulty: usize,
-    #[arg(long, default_value_t = 60)]
-    pub block_time: u64,
+    #[arg(long)]
+    pub nodes: Option<usize>,
+    #[arg(long)]
+    pub difficulty: Option<usize>,
+    #[arg(long)]
+    pub block_time: Option<u64>,
     #[arg(long)]
     pub force: bool,
 }
@@ -138,6 +143,13 @@ pub enum PersistenceCommand {
         #[arg(long)]
         path: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConfigCommand {
+    Show,
+    Paths,
+    Validate,
 }
 
 #[derive(Debug, Subcommand)]
@@ -227,6 +239,20 @@ struct ActionResult {
     message: String,
 }
 
+#[derive(Serialize)]
+struct ConfigPathsView {
+    config_path: String,
+    profile: Option<String>,
+    profile_path: Option<String>,
+    effective_state_path: String,
+}
+
+#[derive(Serialize)]
+struct ConfigShowView {
+    resolution: ConfigPathsView,
+    settings: Settings,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct AliasStore {
     aliases: BTreeMap<String, String>,
@@ -240,6 +266,7 @@ struct MacroStore {
 const ROOT_COMMANDS: &[&str] = &[
     "repl",
     "init",
+    "config",
     "status",
     "nodes",
     "chain",
@@ -255,6 +282,19 @@ const ROOT_COMMANDS: &[&str] = &[
     "quit",
 ];
 const MAX_MACRO_DEPTH: usize = 5;
+
+#[derive(Debug, Clone, Copy)]
+struct EffectiveInitArgs {
+    nodes: usize,
+    difficulty: usize,
+    block_time: u64,
+}
+
+struct CliContext {
+    settings: Settings,
+    settings_resolution: SettingsResolution,
+    state_path: String,
+}
 
 struct CliReplHelper {
     alias_names: Vec<String>,
@@ -328,7 +368,45 @@ fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
     Ok(())
 }
 
-fn bootstrap_network(args: &InitArgs) -> Result<BlockchainNetwork, String> {
+fn resolve_init_args(args: &InitArgs, settings: &Settings) -> Result<EffectiveInitArgs, String> {
+    let effective = EffectiveInitArgs {
+        nodes: args.nodes.unwrap_or(settings.app.initial_node_count),
+        difficulty: args.difficulty.unwrap_or(settings.network.difficulty),
+        block_time: args
+            .block_time
+            .unwrap_or(settings.network.block_time_seconds),
+    };
+
+    if effective.nodes == 0 {
+        return Err("En az 1 node gerekli".to_string());
+    }
+    if effective.difficulty == 0 {
+        return Err("difficulty sıfırdan büyük olmalı".to_string());
+    }
+    if effective.block_time == 0 {
+        return Err("block_time sıfırdan büyük olmalı".to_string());
+    }
+
+    Ok(effective)
+}
+
+fn resolve_cli_context(cli: &Cli) -> Result<CliContext, String> {
+    let loaded = Settings::load_with_resolution(SettingsLoadOptions {
+        config_path: cli.config_path.as_deref(),
+        profile: cli.profile.as_deref(),
+    })?;
+    let state_path = cli
+        .state_path
+        .clone()
+        .unwrap_or_else(|| loaded.settings.persistence.state_path.clone());
+    Ok(CliContext {
+        settings: loaded.settings,
+        settings_resolution: loaded.resolution,
+        state_path,
+    })
+}
+
+fn bootstrap_network(args: EffectiveInitArgs) -> Result<BlockchainNetwork, String> {
     if args.nodes == 0 {
         return Err("En az 1 node gerekli".to_string());
     }
@@ -423,6 +501,7 @@ fn save_macro_store(state_path: &str, macros: &MacroStore) -> Result<(), String>
 
 fn namespaced_subcommands(root: &str) -> &'static [&'static str] {
     match root {
+        "config" => &["show", "paths", "validate"],
         "nodes" => &["list", "show"],
         "chain" => &["tip", "show"],
         "tx" => &["create"],
@@ -476,7 +555,7 @@ fn history_file_path(state_path: &str) -> String {
 
 fn print_repl_help() {
     println!(
-        "Komutlar: init, status, nodes, chain, tx, mempool, mine, persistence, scenario, alias, macro"
+        "Komutlar: init, config, status, nodes, chain, tx, mempool, mine, persistence, scenario, alias, macro"
     );
     println!("Macro kısayolu: !<macro_adi>");
     println!("Yardım: help");
@@ -521,15 +600,32 @@ fn expand_alias_tokens(
     Ok(tokens)
 }
 
+fn build_config_paths_view(
+    settings_resolution: &SettingsResolution,
+    state_path: &str,
+) -> ConfigPathsView {
+    ConfigPathsView {
+        config_path: settings_resolution.config_path.clone(),
+        profile: settings_resolution.profile.clone(),
+        profile_path: settings_resolution.profile_path.clone(),
+        effective_state_path: state_path.to_string(),
+    }
+}
+
 fn execute_command(
     state_path: &str,
+    config_path_override: Option<&str>,
+    profile_override: Option<&str>,
+    settings: &Settings,
+    settings_resolution: &SettingsResolution,
     json: bool,
     command: Command,
     macro_depth: usize,
 ) -> Result<(), String> {
     match command {
-        Command::Repl => run_repl(state_path, json),
+        Command::Repl => run_repl(state_path, config_path_override, profile_override, json),
         Command::Init(args) => {
+            let effective_args = resolve_init_args(&args, settings)?;
             let state_path_ref = Path::new(state_path);
             if state_path_ref.exists() && !args.force {
                 return Err(format!(
@@ -538,13 +634,13 @@ fn execute_command(
                 ));
             }
 
-            let network = bootstrap_network(&args)?;
+            let network = bootstrap_network(effective_args)?;
             save_state(&network, state_path)?;
 
             let message = ActionResult {
                 message: format!(
                     "Ağ hazırlandı: {} node, difficulty {}, block_time {}s",
-                    args.nodes, args.difficulty, args.block_time
+                    effective_args.nodes, effective_args.difficulty, effective_args.block_time
                 ),
             };
             if json {
@@ -554,6 +650,77 @@ fn execute_command(
             }
             Ok(())
         }
+        Command::Config { command } => match command {
+            ConfigCommand::Show => {
+                let view = ConfigShowView {
+                    resolution: build_config_paths_view(settings_resolution, state_path),
+                    settings: settings.clone(),
+                };
+                if json {
+                    print_json(&view)?;
+                } else {
+                    println!("Config path         : {}", view.resolution.config_path);
+                    println!("Profile             : {:?}", view.resolution.profile);
+                    println!("Profile path        : {:?}", view.resolution.profile_path);
+                    println!(
+                        "Effective state path: {}",
+                        view.resolution.effective_state_path
+                    );
+                    println!(
+                        "app.initial_node_count          : {}",
+                        view.settings.app.initial_node_count
+                    );
+                    println!(
+                        "network.difficulty              : {}",
+                        view.settings.network.difficulty
+                    );
+                    println!(
+                        "network.block_time_seconds      : {}",
+                        view.settings.network.block_time_seconds
+                    );
+                    println!(
+                        "persistence.state_path          : {}",
+                        view.settings.persistence.state_path
+                    );
+                    println!(
+                        "api.bind_host                   : {}",
+                        view.settings.api.bind_host
+                    );
+                    println!(
+                        "api.bind_port                   : {}",
+                        view.settings.api.bind_port
+                    );
+                }
+                Ok(())
+            }
+            ConfigCommand::Paths => {
+                let view = build_config_paths_view(settings_resolution, state_path);
+                if json {
+                    print_json(&view)?;
+                } else {
+                    println!("Config path  : {}", view.config_path);
+                    println!("Profile      : {:?}", view.profile);
+                    println!("Profile path : {:?}", view.profile_path);
+                    println!("State path   : {}", view.effective_state_path);
+                }
+                Ok(())
+            }
+            ConfigCommand::Validate => {
+                settings.validate()?;
+                let message = ActionResult {
+                    message: format!(
+                        "Config doğrulandı (config_path={}, profile={:?})",
+                        settings_resolution.config_path, settings_resolution.profile
+                    ),
+                };
+                if json {
+                    print_json(&message)?;
+                } else {
+                    println!("{}", message.message);
+                }
+                Ok(())
+            }
+        },
         Command::Status => {
             let network = load_state(state_path)?;
             let tip = network
@@ -909,11 +1076,10 @@ fn execute_command(
                     let mut network = if Path::new(state_path).exists() {
                         load_state(state_path)?
                     } else {
-                        bootstrap_network(&InitArgs {
-                            nodes: 5,
-                            difficulty: 2,
-                            block_time: 60,
-                            force: true,
+                        bootstrap_network(EffectiveInitArgs {
+                            nodes: settings.app.initial_node_count,
+                            difficulty: settings.network.difficulty,
+                            block_time: settings.network.block_time_seconds,
                         })?
                     };
                     if network.current_val_id().is_none() {
@@ -1076,16 +1242,37 @@ fn execute_command(
                         "--state-path".to_string(),
                         state_path.to_string(),
                     ];
+                    if let Some(config_path) = config_path_override {
+                        args.push("--config-path".to_string());
+                        args.push(config_path.to_string());
+                    }
+                    if let Some(profile) = profile_override {
+                        args.push("--profile".to_string());
+                        args.push(profile.to_string());
+                    }
                     if json {
                         args.push("--json".to_string());
                     }
                     args.extend(tokens);
 
                     let parsed = Cli::try_parse_from(args).map_err(|err| err.to_string())?;
+                    let parsed_context = resolve_cli_context(&parsed)?;
+                    let parsed_config_path = parsed.config_path.clone();
+                    let parsed_profile = parsed.profile.clone();
+                    let parsed_json = parsed.json;
                     let Some(command) = parsed.command else {
                         continue;
                     };
-                    execute_command(&parsed.state_path, parsed.json, command, macro_depth + 1)?;
+                    execute_command(
+                        &parsed_context.state_path,
+                        parsed_config_path.as_deref(),
+                        parsed_profile.as_deref(),
+                        &parsed_context.settings,
+                        &parsed_context.settings_resolution,
+                        parsed_json,
+                        command,
+                        macro_depth + 1,
+                    )?;
                 }
                 let result = ActionResult {
                     message: format!("Macro çalıştırıldı: {}", name),
@@ -1101,7 +1288,12 @@ fn execute_command(
     }
 }
 
-fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
+fn run_repl(
+    state_path: &str,
+    config_path_override: Option<&str>,
+    profile_override: Option<&str>,
+    json: bool,
+) -> Result<(), String> {
     let history_path = history_file_path(state_path);
     if let Some(parent) = Path::new(&history_path).parent() {
         fs::create_dir_all(parent).map_err(|err| err.to_string())?;
@@ -1162,30 +1354,58 @@ fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
                     "--state-path".to_string(),
                     state_path.to_string(),
                 ];
+                if let Some(config_path) = config_path_override {
+                    args.push("--config-path".to_string());
+                    args.push(config_path.to_string());
+                }
+                if let Some(profile) = profile_override {
+                    args.push("--profile".to_string());
+                    args.push(profile.to_string());
+                }
                 if json {
                     args.push("--json".to_string());
                 }
                 args.extend(tokens.clone());
 
                 match Cli::try_parse_from(args) {
-                    Ok(parsed) => match parsed.command {
-                        Some(Command::Repl) => {
-                            println!("Zaten REPL modundasın.");
-                        }
-                        Some(command) => {
-                            if let Err(err) =
-                                execute_command(&parsed.state_path, parsed.json, command, 0)
-                            {
+                    Ok(parsed) => {
+                        let parsed_context = match resolve_cli_context(&parsed) {
+                            Ok(context) => context,
+                            Err(err) => {
                                 println!("Hata: {}", err);
+                                continue;
                             }
-                            let refreshed_alias_store =
-                                load_alias_store(state_path).unwrap_or_default();
-                            let refreshed_alias_names =
-                                refreshed_alias_store.aliases.keys().cloned().collect();
-                            editor.set_helper(Some(CliReplHelper::new(refreshed_alias_names)));
+                        };
+                        let parsed_config_path = parsed.config_path.clone();
+                        let parsed_profile = parsed.profile.clone();
+                        let parsed_json = parsed.json;
+
+                        match parsed.command {
+                            Some(Command::Repl) => {
+                                println!("Zaten REPL modundasın.");
+                            }
+                            Some(command) => {
+                                if let Err(err) = execute_command(
+                                    &parsed_context.state_path,
+                                    parsed_config_path.as_deref(),
+                                    parsed_profile.as_deref(),
+                                    &parsed_context.settings,
+                                    &parsed_context.settings_resolution,
+                                    parsed_json,
+                                    command,
+                                    0,
+                                ) {
+                                    println!("Hata: {}", err);
+                                }
+                                let refreshed_alias_store =
+                                    load_alias_store(state_path).unwrap_or_default();
+                                let refreshed_alias_names =
+                                    refreshed_alias_store.aliases.keys().cloned().collect();
+                                editor.set_helper(Some(CliReplHelper::new(refreshed_alias_names)));
+                            }
+                            None => print_repl_help(),
                         }
-                        None => print_repl_help(),
-                    },
+                    }
                     Err(err) => {
                         println!("{}", err);
                         if let Some(first) = tokens.first() {
@@ -1207,9 +1427,26 @@ fn run_repl(state_path: &str, json: bool) -> Result<(), String> {
 }
 
 pub fn run(cli: Cli) -> Result<(), String> {
+    let context = resolve_cli_context(&cli)?;
+    let config_path_override = cli.config_path.clone();
+    let profile_override = cli.profile.clone();
     match cli.command {
-        Some(command) => execute_command(&cli.state_path, cli.json, command, 0),
-        None => run_repl(&cli.state_path, cli.json),
+        Some(command) => execute_command(
+            &context.state_path,
+            config_path_override.as_deref(),
+            profile_override.as_deref(),
+            &context.settings,
+            &context.settings_resolution,
+            cli.json,
+            command,
+            0,
+        ),
+        None => run_repl(
+            &context.state_path,
+            config_path_override.as_deref(),
+            profile_override.as_deref(),
+            cli.json,
+        ),
     }
 }
 
@@ -1247,6 +1484,15 @@ mod tests {
         let candidates = completion_candidates("nodes ", &alias_names);
         assert!(candidates.contains(&"list".to_string()));
         assert!(candidates.contains(&"show".to_string()));
+    }
+
+    #[test]
+    fn config_completion_alt_komutlari_dondurmeli() {
+        let alias_names: Vec<String> = Vec::new();
+        let candidates = completion_candidates("config ", &alias_names);
+        assert!(candidates.contains(&"show".to_string()));
+        assert!(candidates.contains(&"paths".to_string()));
+        assert!(candidates.contains(&"validate".to_string()));
     }
 
     #[test]

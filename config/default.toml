@@ -1,0 +1,13 @@
+[app]
+initial_node_count = 5
+
+[network]
+difficulty = 2
+block_time_seconds = 60
+
+[persistence]
+state_path = "./data/network_state.json"
+
+[api]
+bind_host = "0.0.0.0"
+bind_port = 3000

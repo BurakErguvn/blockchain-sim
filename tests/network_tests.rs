@@ -266,6 +266,8 @@ fn broadcast_blockchain_sonrasi_ag_mempoolu_da_temizlenmeli() {
 
     let mut longer_chain = base_chain;
     longer_chain.push(sync_block);
+    // Deterministik olarak tum nodelarin candidate zinciri islemesini sagla.
+    network.current_validator_id = None;
     network.broadcast_blockchain(longer_chain);
 
     assert!(network.mempool.is_empty());
@@ -374,13 +376,22 @@ fn esit_uzunlukta_daha_yuksek_is_kaniti_olan_zincir_secilebilmeli() {
     weak_chain.push(weak_block.clone());
 
     let strong_coinbase = Transaction::new_coinbase(miner_address, reward);
-    let mut strong_block = Block::new(
-        last_block.index + 1,
-        last_block.timestamp + 2,
-        vec![strong_coinbase],
-        last_block.hash.clone(),
-    );
-    strong_block.mine_block(network.difficulty + 1);
+    let weak_work_score = weak_block.hash.chars().take_while(|c| *c == '0').count() + 1;
+    let mut strong_attempt = 0_u64;
+    let strong_block = loop {
+        let mut candidate = Block::new(
+            last_block.index + 1,
+            last_block.timestamp + 2 + strong_attempt,
+            vec![strong_coinbase.clone()],
+            last_block.hash.clone(),
+        );
+        candidate.mine_block(network.difficulty + 1);
+        let strong_work_score = candidate.hash.chars().take_while(|c| *c == '0').count() + 1;
+        if strong_work_score > weak_work_score {
+            break candidate;
+        }
+        strong_attempt += 1;
+    };
     let mut strong_chain = base_chain;
     strong_chain.push(strong_block.clone());
 
