@@ -1,6 +1,8 @@
 # Blockchain Simulation
 
-This file is the English documentation entry point. Detailed technical content is organized in the modular documentation set under `docs/en/`.
+Hello and welcome. This project is a community-friendly blockchain simulation that brings block production, transaction validation, UTXO tracking, mempool policies, persistence, API, and an advanced CLI experience into a single learning and experimentation environment.
+
+You can think of this README as a quick starting point: it helps you understand where to begin, routes you to the right documents, and makes contributing easier. Deeper technical details are maintained in the modular documentation set under `docs/en/`.
 
 If you prefer Turkish documentation, see: [README_TR.md](README_TR.md)
 
