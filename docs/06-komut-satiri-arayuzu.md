@@ -19,7 +19,9 @@ cargo run --bin sim_cli -- <komut>
 
 Global bayraklar:
 
-- `--state-path <dosya>`: state dosya yolu (varsayılan: `./data/network_state.json`)
+- `--state-path <dosya>`: state dosya yolu (verilmezse config çözümlemesinden gelir)
+- `--config-path <dosya>`: varsayılan config dosya yolunu override eder
+- `--profile <ad>`: `config/<ad>.toml` profil dosyasını etkinleştirir
 - `--json`: çıktıları JSON formatında üret
 
 Örnek:
@@ -103,6 +105,18 @@ cargo run --bin sim_cli -- mine once
 ```bash
 cargo run --bin sim_cli -- persistence info
 cargo run --bin sim_cli -- persistence save --path ./data/backup.json
+```
+
+#### I) `config`
+
+- `config show`: etkin ayarlar + çözümleme metadata'sı
+- `config paths`: aktif config/profile/profile path ve state path
+- `config validate`: çözülmüş ayarların doğrulama kontrolü
+
+```bash
+cargo run --bin sim_cli -- config show
+cargo run --bin sim_cli -- config paths
+cargo run --bin sim_cli -- config validate
 ```
 
 ### 1.3 REPL Modu
