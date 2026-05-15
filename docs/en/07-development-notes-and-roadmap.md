@@ -84,6 +84,49 @@ This section captures the major technical additions introduced after the modular
   - add/list/remove/run + `!macro` shortcut execution.
 - Namespace-aware autocomplete at root and subcommand levels.
 
+### 6) Configuration System (Phases A-B-C)
+
+#### Phase A
+- A centralized `Settings` model was introduced.
+- `config/default.toml` became the single baseline for app/network/persistence/API parameters.
+- Startup flows for `main`, `api_server`, and `sim_cli` were integrated with this settings model.
+
+#### Phase B
+- A multi-source resolution chain was added:
+  1. CLI overrides,
+  2. environment,
+  3. profile file (`config/<profile>.toml`),
+  4. default file (`config/default.toml`),
+  5. code defaults.
+- Field-level environment overrides were added.
+- Config tests were expanded to cover profile/env/precedence behaviors.
+
+#### Phase C
+- New `sim_cli config` command namespace:
+  - `config show`,
+  - `config paths`,
+  - `config validate`.
+- REPL autocomplete/help output was updated for the config namespace.
+
+### 7) CI/CD Quality Pipeline (Phases 1-2-3)
+
+#### Phase 1: Baseline quality gate
+- GitHub Actions CI checks:
+  - `cargo fmt --all -- --check`,
+  - `cargo clippy --all-targets --all-features`,
+  - `cargo test`.
+
+#### Phase 2: Dependency security
+- Added `cargo audit`.
+- Added `cargo deny check advisories bans`.
+- Added `deny.toml` policy definitions for advisories/bans/sources.
+
+#### Phase 3: Release + smoke
+- Added `release.yml` for tag-driven release build, packaging, and checksum generation.
+- Added CLI smoke checks in CI:
+  - `config validate`,
+  - `config paths`.
+
 ## Updated Roadmap
 
 ### Short-Term

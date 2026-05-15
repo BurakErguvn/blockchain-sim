@@ -19,7 +19,9 @@ cargo run --bin sim_cli -- <command>
 
 Global flags:
 
-- `--state-path <file>`: state file path (default: `./data/network_state.json`)
+- `--state-path <file>`: state file path (if omitted, resolved from config)
+- `--config-path <file>`: overrides the default config file path
+- `--profile <name>`: enables `config/<name>.toml` profile
 - `--json`: output in JSON format
 
 Example:
@@ -103,6 +105,18 @@ cargo run --bin sim_cli -- mine once
 ```bash
 cargo run --bin sim_cli -- persistence info
 cargo run --bin sim_cli -- persistence save --path ./data/backup.json
+```
+
+#### I) `config`
+
+- `config show`: shows resolved settings and resolution metadata
+- `config paths`: shows active config/profile/profile path and effective state path
+- `config validate`: validates resolved settings
+
+```bash
+cargo run --bin sim_cli -- config show
+cargo run --bin sim_cli -- config paths
+cargo run --bin sim_cli -- config validate
 ```
 
 ### 1.3 REPL Mode

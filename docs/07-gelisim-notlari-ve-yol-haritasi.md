@@ -84,6 +84,49 @@ Bu bölüm, README yapısının modüler hale getirilmesinden sonra çekirdeğe 
   - add/list/remove/run + `!macro` kısa çağrısı.
 - Namespace-aware autocomplete (kök komut + alt komut düzeyi).
 
+### 6) Konfigürasyon Sistemi (Faz A-B-C)
+
+#### Faz A
+- Merkezi `Settings` modeli eklendi.
+- `config/default.toml` ile temel uygulama/ağ/persistence/API parametreleri tek dosyada toplandı.
+- `main`, `api_server` ve `sim_cli` açılış akışları bu ayar modeline bağlandı.
+
+#### Faz B
+- Çok-kaynaklı çözümleme zinciri eklendi:
+  1. CLI override,
+  2. environment,
+  3. profil dosyası (`config/<profile>.toml`),
+  4. default dosya (`config/default.toml`),
+  5. kod içi varsayılanlar.
+- Environment değişkenleri ile alan bazlı override desteği eklendi.
+- Config testleri profile/env/precedence senaryolarını kapsayacak şekilde genişletildi.
+
+#### Faz C
+- `sim_cli config` komut grubu eklendi:
+  - `config show`,
+  - `config paths`,
+  - `config validate`.
+- REPL autocomplete ve yardım çıktısı config namespace'i için güncellendi.
+
+### 7) CI/CD Kalite Hattı (Faz 1-2-3)
+
+#### Faz 1: Temel kalite kapısı
+- GitHub Actions CI hattında zorunlu kontroller:
+  - `cargo fmt --all -- --check`,
+  - `cargo clippy --all-targets --all-features`,
+  - `cargo test`.
+
+#### Faz 2: Bağımlılık güvenliği
+- `cargo audit` kontrolü eklendi.
+- `cargo deny check advisories bans` kontrolü eklendi.
+- `deny.toml` policy dosyası ile advisory/bans/source kuralları tanımlandı.
+
+#### Faz 3: Release + smoke
+- `release.yml` ile tag tabanlı release build, paketleme ve checksum üretimi eklendi.
+- CI hattına `sim_cli` için smoke doğrulama adımları eklendi:
+  - `config validate`,
+  - `config paths`.
+
 ## Güncel Yol Haritası
 
 ### Kısa Vadeli
