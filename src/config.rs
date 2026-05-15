@@ -9,6 +9,19 @@ pub struct SettingsLoadOptions<'a> {
     pub profile: Option<&'a str>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct SettingsResolution {
+    pub config_path: String,
+    pub profile: Option<String>,
+    pub profile_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadedSettings {
+    pub settings: Settings,
+    pub resolution: SettingsResolution,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -106,20 +119,36 @@ impl Settings {
     }
 
     pub fn load(options: SettingsLoadOptions<'_>) -> Result<Self, String> {
+        let loaded = Self::load_with_resolution(options)?;
+        Ok(loaded.settings)
+    }
+
+    pub fn load_with_resolution(
+        options: SettingsLoadOptions<'_>,
+    ) -> Result<LoadedSettings, String> {
         let config_path = Self::resolve_config_path(options.config_path);
         let profile = Self::resolve_profile(options.profile);
+        let profile_path = profile
+            .as_ref()
+            .map(|profile| Self::profile_path_for(Path::new(&config_path), profile));
 
         let mut settings = Self::default();
         settings.merge_file_if_exists(Path::new(&config_path))?;
 
-        if let Some(profile) = profile.as_deref() {
-            let profile_path = Self::profile_path_for(Path::new(&config_path), profile);
+        if let Some(profile_path) = profile_path.as_deref() {
             settings.merge_file_if_exists(&profile_path)?;
         }
 
         settings.apply_env_overrides()?;
         settings.validate()?;
-        Ok(settings)
+        Ok(LoadedSettings {
+            settings,
+            resolution: SettingsResolution {
+                config_path,
+                profile,
+                profile_path: profile_path.map(|path| path.to_string_lossy().to_string()),
+            },
+        })
     }
 
     pub fn load_from_file(path: &str) -> Result<Self, String> {

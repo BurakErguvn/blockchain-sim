@@ -12,7 +12,7 @@ use std::fs;
 use std::path::Path;
 use strsim::jaro_winkler;
 
-use crate::config::{Settings, SettingsLoadOptions};
+use crate::config::{Settings, SettingsLoadOptions, SettingsResolution};
 use crate::network::BlockchainNetwork;
 
 #[derive(Debug, Parser)]
@@ -38,6 +38,10 @@ pub struct Cli {
 pub enum Command {
     Repl,
     Init(InitArgs),
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     Status,
     Nodes {
         #[command(subcommand)]
@@ -142,6 +146,13 @@ pub enum PersistenceCommand {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum ConfigCommand {
+    Show,
+    Paths,
+    Validate,
+}
+
+#[derive(Debug, Subcommand)]
 pub enum ScenarioCommand {
     List,
     Run {
@@ -228,6 +239,20 @@ struct ActionResult {
     message: String,
 }
 
+#[derive(Serialize)]
+struct ConfigPathsView {
+    config_path: String,
+    profile: Option<String>,
+    profile_path: Option<String>,
+    effective_state_path: String,
+}
+
+#[derive(Serialize)]
+struct ConfigShowView {
+    resolution: ConfigPathsView,
+    settings: Settings,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct AliasStore {
     aliases: BTreeMap<String, String>,
@@ -241,6 +266,7 @@ struct MacroStore {
 const ROOT_COMMANDS: &[&str] = &[
     "repl",
     "init",
+    "config",
     "status",
     "nodes",
     "chain",
@@ -262,6 +288,12 @@ struct EffectiveInitArgs {
     nodes: usize,
     difficulty: usize,
     block_time: u64,
+}
+
+struct CliContext {
+    settings: Settings,
+    settings_resolution: SettingsResolution,
+    state_path: String,
 }
 
 struct CliReplHelper {
@@ -358,16 +390,20 @@ fn resolve_init_args(args: &InitArgs, settings: &Settings) -> Result<EffectiveIn
     Ok(effective)
 }
 
-fn resolve_cli_context(cli: &Cli) -> Result<(Settings, String), String> {
-    let settings = Settings::load(SettingsLoadOptions {
+fn resolve_cli_context(cli: &Cli) -> Result<CliContext, String> {
+    let loaded = Settings::load_with_resolution(SettingsLoadOptions {
         config_path: cli.config_path.as_deref(),
         profile: cli.profile.as_deref(),
     })?;
     let state_path = cli
         .state_path
         .clone()
-        .unwrap_or_else(|| settings.persistence.state_path.clone());
-    Ok((settings, state_path))
+        .unwrap_or_else(|| loaded.settings.persistence.state_path.clone());
+    Ok(CliContext {
+        settings: loaded.settings,
+        settings_resolution: loaded.resolution,
+        state_path,
+    })
 }
 
 fn bootstrap_network(args: EffectiveInitArgs) -> Result<BlockchainNetwork, String> {
@@ -465,6 +501,7 @@ fn save_macro_store(state_path: &str, macros: &MacroStore) -> Result<(), String>
 
 fn namespaced_subcommands(root: &str) -> &'static [&'static str] {
     match root {
+        "config" => &["show", "paths", "validate"],
         "nodes" => &["list", "show"],
         "chain" => &["tip", "show"],
         "tx" => &["create"],
@@ -518,7 +555,7 @@ fn history_file_path(state_path: &str) -> String {
 
 fn print_repl_help() {
     println!(
-        "Komutlar: init, status, nodes, chain, tx, mempool, mine, persistence, scenario, alias, macro"
+        "Komutlar: init, config, status, nodes, chain, tx, mempool, mine, persistence, scenario, alias, macro"
     );
     println!("Macro kısayolu: !<macro_adi>");
     println!("Yardım: help");
@@ -563,11 +600,24 @@ fn expand_alias_tokens(
     Ok(tokens)
 }
 
+fn build_config_paths_view(
+    settings_resolution: &SettingsResolution,
+    state_path: &str,
+) -> ConfigPathsView {
+    ConfigPathsView {
+        config_path: settings_resolution.config_path.clone(),
+        profile: settings_resolution.profile.clone(),
+        profile_path: settings_resolution.profile_path.clone(),
+        effective_state_path: state_path.to_string(),
+    }
+}
+
 fn execute_command(
     state_path: &str,
     config_path_override: Option<&str>,
     profile_override: Option<&str>,
     settings: &Settings,
+    settings_resolution: &SettingsResolution,
     json: bool,
     command: Command,
     macro_depth: usize,
@@ -600,6 +650,77 @@ fn execute_command(
             }
             Ok(())
         }
+        Command::Config { command } => match command {
+            ConfigCommand::Show => {
+                let view = ConfigShowView {
+                    resolution: build_config_paths_view(settings_resolution, state_path),
+                    settings: settings.clone(),
+                };
+                if json {
+                    print_json(&view)?;
+                } else {
+                    println!("Config path         : {}", view.resolution.config_path);
+                    println!("Profile             : {:?}", view.resolution.profile);
+                    println!("Profile path        : {:?}", view.resolution.profile_path);
+                    println!(
+                        "Effective state path: {}",
+                        view.resolution.effective_state_path
+                    );
+                    println!(
+                        "app.initial_node_count          : {}",
+                        view.settings.app.initial_node_count
+                    );
+                    println!(
+                        "network.difficulty              : {}",
+                        view.settings.network.difficulty
+                    );
+                    println!(
+                        "network.block_time_seconds      : {}",
+                        view.settings.network.block_time_seconds
+                    );
+                    println!(
+                        "persistence.state_path          : {}",
+                        view.settings.persistence.state_path
+                    );
+                    println!(
+                        "api.bind_host                   : {}",
+                        view.settings.api.bind_host
+                    );
+                    println!(
+                        "api.bind_port                   : {}",
+                        view.settings.api.bind_port
+                    );
+                }
+                Ok(())
+            }
+            ConfigCommand::Paths => {
+                let view = build_config_paths_view(settings_resolution, state_path);
+                if json {
+                    print_json(&view)?;
+                } else {
+                    println!("Config path  : {}", view.config_path);
+                    println!("Profile      : {:?}", view.profile);
+                    println!("Profile path : {:?}", view.profile_path);
+                    println!("State path   : {}", view.effective_state_path);
+                }
+                Ok(())
+            }
+            ConfigCommand::Validate => {
+                settings.validate()?;
+                let message = ActionResult {
+                    message: format!(
+                        "Config doğrulandı (config_path={}, profile={:?})",
+                        settings_resolution.config_path, settings_resolution.profile
+                    ),
+                };
+                if json {
+                    print_json(&message)?;
+                } else {
+                    println!("{}", message.message);
+                }
+                Ok(())
+            }
+        },
         Command::Status => {
             let network = load_state(state_path)?;
             let tip = network
@@ -1135,7 +1256,7 @@ fn execute_command(
                     args.extend(tokens);
 
                     let parsed = Cli::try_parse_from(args).map_err(|err| err.to_string())?;
-                    let (parsed_settings, parsed_state_path) = resolve_cli_context(&parsed)?;
+                    let parsed_context = resolve_cli_context(&parsed)?;
                     let parsed_config_path = parsed.config_path.clone();
                     let parsed_profile = parsed.profile.clone();
                     let parsed_json = parsed.json;
@@ -1143,10 +1264,11 @@ fn execute_command(
                         continue;
                     };
                     execute_command(
-                        &parsed_state_path,
+                        &parsed_context.state_path,
                         parsed_config_path.as_deref(),
                         parsed_profile.as_deref(),
-                        &parsed_settings,
+                        &parsed_context.settings,
+                        &parsed_context.settings_resolution,
                         parsed_json,
                         command,
                         macro_depth + 1,
@@ -1247,14 +1369,13 @@ fn run_repl(
 
                 match Cli::try_parse_from(args) {
                     Ok(parsed) => {
-                        let (parsed_settings, parsed_state_path) =
-                            match resolve_cli_context(&parsed) {
-                                Ok(context) => context,
-                                Err(err) => {
-                                    println!("Hata: {}", err);
-                                    continue;
-                                }
-                            };
+                        let parsed_context = match resolve_cli_context(&parsed) {
+                            Ok(context) => context,
+                            Err(err) => {
+                                println!("Hata: {}", err);
+                                continue;
+                            }
+                        };
                         let parsed_config_path = parsed.config_path.clone();
                         let parsed_profile = parsed.profile.clone();
                         let parsed_json = parsed.json;
@@ -1265,10 +1386,11 @@ fn run_repl(
                             }
                             Some(command) => {
                                 if let Err(err) = execute_command(
-                                    &parsed_state_path,
+                                    &parsed_context.state_path,
                                     parsed_config_path.as_deref(),
                                     parsed_profile.as_deref(),
-                                    &parsed_settings,
+                                    &parsed_context.settings,
+                                    &parsed_context.settings_resolution,
                                     parsed_json,
                                     command,
                                     0,
@@ -1305,21 +1427,22 @@ fn run_repl(
 }
 
 pub fn run(cli: Cli) -> Result<(), String> {
-    let (settings, resolved_state_path) = resolve_cli_context(&cli)?;
+    let context = resolve_cli_context(&cli)?;
     let config_path_override = cli.config_path.clone();
     let profile_override = cli.profile.clone();
     match cli.command {
         Some(command) => execute_command(
-            &resolved_state_path,
+            &context.state_path,
             config_path_override.as_deref(),
             profile_override.as_deref(),
-            &settings,
+            &context.settings,
+            &context.settings_resolution,
             cli.json,
             command,
             0,
         ),
         None => run_repl(
-            &resolved_state_path,
+            &context.state_path,
             config_path_override.as_deref(),
             profile_override.as_deref(),
             cli.json,
@@ -1361,6 +1484,15 @@ mod tests {
         let candidates = completion_candidates("nodes ", &alias_names);
         assert!(candidates.contains(&"list".to_string()));
         assert!(candidates.contains(&"show".to_string()));
+    }
+
+    #[test]
+    fn config_completion_alt_komutlari_dondurmeli() {
+        let alias_names: Vec<String> = Vec::new();
+        let candidates = completion_candidates("config ", &alias_names);
+        assert!(candidates.contains(&"show".to_string()));
+        assert!(candidates.contains(&"paths".to_string()));
+        assert!(candidates.contains(&"validate".to_string()));
     }
 
     #[test]
