@@ -28,3 +28,77 @@ key = "signature_tamper_rejected"
 [[assertions]]
 type = "node_count"
 expected = 3
+
+[[guided_steps]]
+id = "inspect-network"
+title = "Inspect the classroom network"
+instruction = "Confirm the network has three nodes and Alice is funded."
+concept = "Network"
+command_template = "nodes list"
+hint_levels = [
+  "Start by listing nodes.",
+  "Alice is node 0 and should hold the genesis reward.",
+  "Run: cargo run --bin sim_cli -- --profile classroom --json nodes list",
+]
+feedback_fail = "Expected three nodes with Alice funded."
+discussion_prompt = "Which node can currently create a signed spend?"
+
+[guided_steps.check]
+type = "node_count"
+expected = 3
+
+[[guided_steps]]
+id = "create-valid-tx"
+title = "Create a valid signed transaction"
+instruction = "Create a 5-coin transfer from Alice to Bob and leave it in the mempool."
+concept = "Signature"
+command_template = "tx create --sender-id 0 --recipient-id 1 --amount-coin 5"
+hint_levels = [
+  "A valid wallet signature is produced during tx create.",
+  "Use Alice as sender and Bob as recipient.",
+  "Run: cargo run --bin sim_cli -- --profile classroom tx create --sender-id 0 --recipient-id 1 --amount-coin 5",
+]
+feedback_fail = "A valid transaction should appear in the mempool first."
+discussion_prompt = "What does the signature prove?"
+
+[guided_steps.check]
+type = "mempool_count_min"
+expected = 1
+
+[[guided_steps]]
+id = "observe-tamper-rejection"
+title = "Observe signature tamper rejection"
+instruction = "Run the guided check to locally tamper with a signed transaction and observe verification failure. You do not need to mine."
+concept = "Integrity"
+command_template = "learn check"
+hint_levels = [
+  "This step runs a safe local tamper demonstration.",
+  "No extra CLI transaction is required beyond the previous valid transfer.",
+  "Run: cargo run --bin sim_cli -- --profile classroom learn check",
+]
+feedback_fail = "Tampered transaction should be rejected by verify_transaction."
+discussion_prompt = "Why does changing an output amount invalidate the old signature?"
+
+[guided_steps.check]
+type = "run_signature_tamper_demo"
+from = 0
+to = 1
+amount_coin = 5.0
+
+[[guided_steps]]
+id = "hash-vs-signature"
+title = "Hash versus signature"
+instruction = "Acknowledge that hashing detects content changes while signatures prove authorization by a private key holder."
+concept = "Cryptography"
+command_template = "learn check --ack understood"
+hint_levels = [
+  "This is a concept acknowledgement step.",
+  "Use the expected acknowledgement token.",
+  "Run: cargo run --bin sim_cli -- --profile classroom learn check --ack understood",
+]
+feedback_fail = "Acknowledge with --ack understood after reviewing the discussion prompt."
+discussion_prompt = "Hash alone does not prove ownership; a signature binds a key to specific content."
+
+[guided_steps.check]
+type = "acknowledge"
+token = "understood"

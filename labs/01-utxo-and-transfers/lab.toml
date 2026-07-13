@@ -39,3 +39,114 @@ expected = 2
 
 [[assertions]]
 type = "tip_hash_present"
+
+[[guided_steps]]
+id = "inspect-alice"
+title = "Inspect the funded node"
+instruction = "List all nodes and confirm that Alice (node 0) holds the genesis mining reward."
+concept = "UTXO"
+command_template = "nodes list"
+hint_levels = [
+  "Use the nodes command family.",
+  "JSON output makes balances easier to read.",
+  "Run: cargo run --bin sim_cli -- --profile classroom --json nodes list",
+]
+feedback_fail = "Alice should be funded after genesis. Re-run learn start if the state was reset."
+discussion_prompt = "Why does only one node start with coins?"
+
+[guided_steps.check]
+type = "balance_min"
+node = 0
+amount_satoshi = 5000000000
+
+[[guided_steps]]
+id = "create-transfer"
+title = "Create a transfer"
+instruction = "Send 10 coins from Alice (0) to Bob (1). Do not mine yet."
+concept = "Transaction"
+command_template = "tx create --sender-id 0 --recipient-id 1 --amount-coin 10"
+hint_levels = [
+  "Create a transaction before mining.",
+  "Sender is Alice (0), recipient is Bob (1), amount is 10 coins.",
+  "Run: cargo run --bin sim_cli -- --profile classroom tx create --sender-id 0 --recipient-id 1 --amount-coin 10",
+]
+feedback_fail = "No qualifying transaction was found in the mempool yet."
+discussion_prompt = "Which UTXO did Alice spend?"
+
+[guided_steps.check]
+type = "mempool_count_min"
+expected = 1
+
+[[guided_steps]]
+id = "observe-unconfirmed"
+title = "Observe unconfirmed balances"
+instruction = "Check node balances while the transfer is still in the mempool. Bob should not have the 10 coins yet."
+concept = "Confirmation"
+command_template = "nodes list"
+hint_levels = [
+  "Unconfirmed transactions do not credit the recipient balance.",
+  "Inspect balances with nodes list and keep the mempool non-empty.",
+  "Run: cargo run --bin sim_cli -- --profile classroom --json nodes list",
+]
+feedback_fail = "Bob should still be below 10 coins while the transfer is unconfirmed."
+discussion_prompt = "Why is balance different from mempool presence?"
+
+[guided_steps.check]
+type = "balance_equals"
+node = 1
+amount_satoshi = 0
+
+[[guided_steps]]
+id = "mine-confirmation"
+title = "Confirm the transfer"
+instruction = "Mine one block so the mempool transaction is included in the chain."
+concept = "Block"
+command_template = "mine once"
+hint_levels = [
+  "Mining includes mempool transactions into a new block.",
+  "Use the mine once command.",
+  "Run: cargo run --bin sim_cli -- --profile classroom mine once",
+]
+feedback_fail = "Chain height should increase after mining."
+discussion_prompt = "What happened to the spent UTXO after confirmation?"
+
+[guided_steps.check]
+type = "chain_height_min"
+expected = 2
+
+[[guided_steps]]
+id = "verify-bob-balance"
+title = "Verify Bob's balance"
+instruction = "Confirm that Bob now has at least 10 coins."
+concept = "UTXO"
+command_template = "nodes show 1"
+hint_levels = [
+  "After confirmation, Bob's wallet should reflect the new UTXO.",
+  "Inspect node 1 specifically.",
+  "Run: cargo run --bin sim_cli -- --profile classroom nodes show 1",
+]
+feedback_fail = "Bob's confirmed balance is still below 10 coins."
+discussion_prompt = "How would change outputs appear for Alice?"
+
+[guided_steps.check]
+type = "balance_min"
+node = 1
+amount_satoshi = 1000000000
+
+[[guided_steps]]
+id = "reflect-utxo"
+title = "Reflect on the UTXO model"
+instruction = "Read the discussion prompt and acknowledge that you understand why balances only change after confirmation."
+concept = "Confirmation"
+command_template = "learn check --ack understood"
+hint_levels = [
+  "This step is a concept check, not a chain mutation.",
+  "Use the acknowledge flag with the expected token.",
+  "Run: cargo run --bin sim_cli -- --profile classroom learn check --ack understood",
+]
+feedback_fail = "Acknowledge the concept with --ack understood after reviewing the prompt."
+discussion_prompt = "Balance is derived from UTXOs. Mempool entries are proposals until a block confirms them."
+
+[guided_steps.check]
+type = "acknowledge"
+token = "understood"

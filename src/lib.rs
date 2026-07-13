@@ -3,6 +3,7 @@ pub mod block;
 pub mod cli;
 pub mod config;
 pub mod lab;
+pub mod learn;
 pub mod network;
 pub mod node;
 pub mod transaction;
