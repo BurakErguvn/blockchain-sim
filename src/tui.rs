@@ -623,6 +623,13 @@ fn draw_header(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
             )
         })
         .unwrap_or_else(|| "no active network".to_string());
+    if area.width < 80 {
+        frame.render_widget(
+            Paragraph::new(title).block(Block::default().borders(Borders::BOTTOM)),
+            area,
+        );
+        return;
+    }
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
@@ -641,6 +648,19 @@ fn draw_header(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
 }
 
 fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut TuiApp) {
+    if area.width < 100 {
+        if app.focus == Focus::Network {
+            draw_network(frame, area, app);
+            return;
+        }
+        let compact = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+            .split(area);
+        draw_navigation(frame, compact[0], app);
+        draw_workspace(frame, compact[1], app);
+        return;
+    }
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -992,6 +1012,15 @@ fn draw_network(frame: &mut Frame<'_>, area: Rect, app: &mut TuiApp) {
 }
 
 fn draw_footer(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+    if area.width < 100 {
+        frame.render_widget(
+            Paragraph::new(" Tab focus · ↑↓ navigate · Enter apply · c check · ? help · q quit ")
+                .style(Style::default().fg(Color::DarkGray))
+                .block(Block::default().borders(Borders::TOP)),
+            area,
+        );
+        return;
+    }
     let tabs = Tabs::new(vec![
         Line::from(" Tab focus "),
         Line::from(" ↑↓ navigate "),
@@ -1132,6 +1161,19 @@ mod tests {
         let state = dir.join("state.json").to_string_lossy().to_string();
         let mut app = TuiApp::new(state, root).expect("app");
         let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        terminal.draw(|frame| draw(frame, &mut app)).expect("draw");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn app_renders_compact_layout() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("labs");
+        let dir = std::env::temp_dir().join(format!("tui_compact_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let state = dir.join("state.json").to_string_lossy().to_string();
+        let mut app = TuiApp::new(state, root).expect("app");
+        let backend = TestBackend::new(60, 32);
         let mut terminal = Terminal::new(backend).expect("terminal");
         terminal.draw(|frame| draw(frame, &mut app)).expect("draw");
         let _ = std::fs::remove_dir_all(dir);

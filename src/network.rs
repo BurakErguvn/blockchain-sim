@@ -878,7 +878,6 @@ impl BlockchainNetwork {
             println!("Warning: {}", err);
             return;
         }
-        println!("Node {} is selected as the new validator.", validator_id);
     }
 
     // Madencilik yaparak yeni bir blok oluştur
@@ -1242,7 +1241,6 @@ impl BlockchainNetwork {
     // Zorluk seviyesini ayarla
     pub fn set_difficulty(&mut self, difficulty: usize) {
         self.difficulty = difficulty;
-        println!("Mining difficulty set to: {}", difficulty);
     }
 
     // Block time'ı ayarla (saniye cinsinden)
