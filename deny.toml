@@ -5,7 +5,11 @@ all-features = true
 [advisories]
 version = 2
 yanked = "warn"
-ignore = []
+# paste is pulled transitively by ratatui 0.28.1 (compile-time proc-macro only).
+# ratatui 0.30+ drops paste but requires rustc >= 1.88; project MSRV stays at 1.85.
+ignore = [
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained paste via ratatui 0.28.1; upgrade blocked by MSRV 1.85" },
+]
 
 [bans]
 multiple-versions = "warn"
