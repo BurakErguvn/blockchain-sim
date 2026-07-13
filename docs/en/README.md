@@ -12,6 +12,7 @@ This directory provides a modular technical documentation structure for the proj
 6. [Command-Line Interface Reference](06-cli-reference.md)
 7. [Development Notes and Roadmap](07-development-notes-and-roadmap.md)
 8. [HTTP API Usage Guide](08-http-api-usage.md)
+9. [Academic Labs](09-academic-labs.md)
 
 ## Recommended Reading Order
 
@@ -24,3 +25,4 @@ For a structured technical review, the following order is recommended:
 5. Installation and Running
 6. Command-Line Interface Reference
 7. HTTP API Usage Guide
+8. Academic Labs (`labs/` package)

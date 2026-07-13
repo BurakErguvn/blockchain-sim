@@ -1,0 +1,30 @@
+id = "02-signatures-and-integrity"
+title = "Signatures and Integrity"
+difficulty = "beginner"
+estimated_minutes = 25
+objectives = [
+  "Explain why transactions are signed",
+  "Distinguish hashing from digital signatures",
+  "Observe that tampering invalidates verification",
+]
+aliases = ["Alice", "Bob", "Carol"]
+
+[setup]
+nodes = 3
+difficulty = 1
+block_time_seconds = 1
+mine_genesis = true
+
+[[steps]]
+action = "demonstrate_signature_tamper"
+from = 0
+to = 1
+amount_coin = 5.0
+
+[[assertions]]
+type = "demo_flag_true"
+key = "signature_tamper_rejected"
+
+[[assertions]]
+type = "node_count"
+expected = 3

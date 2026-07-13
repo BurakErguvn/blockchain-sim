@@ -1,0 +1,35 @@
+id = "05-forks-and-reorgs"
+title = "Forks and Reorgs"
+difficulty = "intermediate"
+estimated_minutes = 35
+objectives = [
+  "Explain how forks form",
+  "Observe canonical chain selection",
+  "Measure reorg depth after network healing",
+]
+aliases = ["Alice", "Bob", "Carol"]
+
+[setup]
+nodes = 3
+difficulty = 1
+block_time_seconds = 1
+mine_genesis = true
+
+[[steps]]
+action = "mine_block"
+
+[[steps]]
+action = "simulate_fork_reorg"
+primary = 0
+secondary = 1
+
+[[assertions]]
+type = "reorg_depth_equals"
+expected = 1
+
+[[assertions]]
+type = "canonical_tips_match"
+
+[[assertions]]
+type = "chain_height_min"
+expected = 2

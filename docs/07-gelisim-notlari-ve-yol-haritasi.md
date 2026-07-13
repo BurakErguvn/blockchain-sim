@@ -127,6 +127,17 @@ Bu bölüm, README yapısının modüler hale getirilmesinden sonra çekirdeğe 
   - `config validate`,
   - `config paths`.
 
+### 8) Akademik Laboratuvar Paketi
+
+- `labs/` altında 6 pedagojik modül eklendi (UTXO, imza, mempool, PoW, fork/reorg, saldırılar).
+- Her modül için öğrenci yönergesi, sorular, rubrik, öğretmen notları ve `lab.toml` tanımı hazırlandı.
+- `config/classroom.toml` sınıf profili eklendi.
+- `sim_cli lab` komut grubu eklendi:
+  - `lab list|show|setup|run|verify`
+- Dosya tabanlı lab runner assertion’ları JSON çıktı ile otomatik değerlendirmeyi destekler.
+- `tx create --fee-satoshi` ile ücret kontrollü mempool deneyleri kolaylaştırıldı.
+- Deterministik lab fonlaması için `select_validator` API’si eklendi.
+
 ## Güncel Yol Haritası
 
 ### Kısa Vadeli
@@ -134,15 +145,18 @@ Bu bölüm, README yapısının modüler hale getirilmesinden sonra çekirdeğe 
 1. Derleme uyarılarının sistematik temizlenmesi (`clippy -D warnings` hedefi).
 2. CLI için komut sözleşmelerinin (JSON schema/örnekler) netleştirilmesi.
 3. API katmanında temel güvenlik sertleştirmesi (CORS, auth, rate-limit).
+4. Lab modüllerine İngilizce öğrenci metinlerinin tam lokalizasyonu.
 
 ### Orta Vadeli
 
 1. REPL içinde arg-level autocomplete ve bağlamsal yardım paneli.
 2. Senaryo/macro komutlarının dosya tabanlı script formatına genişletilmesi.
 3. Ağ mesajlaşma modelinin daha gerçekçi gecikme/çatallanma davranışlarıyla iyileştirilmesi.
+4. Lab oturumları için ephemeral key / gizlilik modu.
 
 ### Uzun Vadeli
 
 1. Snapshot + incremental state formatının performans odaklı optimize edilmesi.
 2. API ile CLI arasında ortak gözlemlenebilirlik katmanı (event stream / metrics).
 3. Konsensüs deneylerinin farklı parametre kümeleriyle otomatik benchmark edilmesi.
+4. LMS/LTI entegrasyonu ve öğretmen paneli.

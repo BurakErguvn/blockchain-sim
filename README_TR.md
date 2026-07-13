@@ -20,6 +20,7 @@ Bu README dosyasını hızlı bir başlangıç noktası gibi düşünebilirsin: 
 - [Komut Satırı Arayüzü Referansı](docs/06-komut-satiri-arayuzu.md)
 - [Geliştirme Notları ve Yol Haritası](docs/07-gelisim-notlari-ve-yol-haritasi.md)
 - [HTTP API Kullanım Kılavuzu](docs/08-http-api-kullanimi.md)
+- [Akademik Laboratuvarlar](docs/09-akademik-laboratuvarlar.md)
 
 ## Kısa Çalıştırma Notu
 
@@ -32,4 +33,8 @@ Ek çalıştırma örnekleri:
 ```bash
 cargo run --bin sim_cli -- status
 cargo run --bin api_server
+cargo run --bin sim_cli -- --profile classroom lab list
+cargo run --bin sim_cli -- --profile classroom lab run 01-utxo-and-transfers --json
 ```
+
+Akademik laboratuvar paketi: [labs/README.md](labs/README.md)

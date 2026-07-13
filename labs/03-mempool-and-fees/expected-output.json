@@ -1,0 +1,8 @@
+{
+  "lab_id": "03-mempool-and-fees",
+  "passed": true,
+  "checks": [
+    {"assertion": "mempool_count_min>=2", "passed": true},
+    {"assertion": "node_count==3", "passed": true}
+  ]
+}

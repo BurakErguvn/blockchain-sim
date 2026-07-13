@@ -20,6 +20,7 @@ If you prefer Turkish documentation, see: [README_TR.md](README_TR.md)
 - [Command-Line Interface Reference](docs/en/06-cli-reference.md)
 - [Development Notes and Roadmap](docs/en/07-development-notes-and-roadmap.md)
 - [HTTP API Usage Guide](docs/en/08-http-api-usage.md)
+- [Academic Labs](docs/en/09-academic-labs.md)
 
 ## Minimal Run Command
 
@@ -32,4 +33,8 @@ Additional run examples:
 ```bash
 cargo run --bin sim_cli -- status
 cargo run --bin api_server
+cargo run --bin sim_cli -- --profile classroom lab list
+cargo run --bin sim_cli -- --profile classroom lab run 01-utxo-and-transfers --json
 ```
+
+Academic lab package: [labs/README.md](labs/README.md)

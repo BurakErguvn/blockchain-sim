@@ -845,26 +845,40 @@ impl BlockchainNetwork {
     }
 
     // Rasgele bir validator seç
+    pub fn select_validator(&mut self, validator_id: usize) -> Result<(), String> {
+        if self.nodes.is_empty() {
+            return Err("Validator seçmek için ağda en az bir node olmalı".to_string());
+        }
+        if validator_id >= self.nodes.len() {
+            return Err(format!("Geçersiz validator_id: {}", validator_id));
+        }
+
+        for node in self.nodes.iter_mut() {
+            node.is_validator = false;
+        }
+
+        if let Some(node) = self.nodes.get_mut(validator_id) {
+            node.is_validator = true;
+            self.current_validator_id = Some(validator_id);
+            Ok(())
+        } else {
+            Err(format!("Validator node bulunamadı: {}", validator_id))
+        }
+    }
+
     pub fn select_random_validator(&mut self) {
         if self.nodes.is_empty() {
             println!("Warning: No nodes available to select as validator.");
             return;
         }
 
-        // Önce tüm node'ları validator olmaktan çıkar
-        for node in self.nodes.iter_mut() {
-            node.is_validator = false;
-        }
-
-        // Rasgele bir node seç
         let mut rng = rand::thread_rng();
         let validator_id = rng.gen_range(0..self.nodes.len());
-
-        if let Some(node) = self.nodes.get_mut(validator_id) {
-            node.is_validator = true;
-            self.current_validator_id = Some(validator_id);
-            println!("Node {} is selected as the new validator.", validator_id);
+        if let Err(err) = self.select_validator(validator_id) {
+            println!("Warning: {}", err);
+            return;
         }
+        println!("Node {} is selected as the new validator.", validator_id);
     }
 
     // Madencilik yaparak yeni bir blok oluştur

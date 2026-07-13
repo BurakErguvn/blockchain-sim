@@ -1,0 +1,9 @@
+{
+  "lab_id": "05-forks-and-reorgs",
+  "passed": true,
+  "checks": [
+    {"assertion": "reorg_depth==1", "passed": true},
+    {"assertion": "canonical_tips_match", "passed": true},
+    {"assertion": "chain_height_min>=2", "passed": true}
+  ]
+}

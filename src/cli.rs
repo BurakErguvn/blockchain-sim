@@ -13,6 +13,7 @@ use std::path::Path;
 use strsim::jaro_winkler;
 
 use crate::config::{Settings, SettingsLoadOptions, SettingsResolution};
+use crate::lab::{self, DemoFlags, LabManifest};
 use crate::network::BlockchainNetwork;
 
 #[derive(Debug, Parser)]
@@ -71,6 +72,10 @@ pub enum Command {
         #[command(subcommand)]
         command: ScenarioCommand,
     },
+    Lab {
+        #[command(subcommand)]
+        command: LabCommand,
+    },
     Alias {
         #[command(subcommand)]
         command: AliasCommand,
@@ -119,6 +124,8 @@ pub enum TxCommand {
         recipient_id: usize,
         #[arg(long)]
         amount_coin: f64,
+        #[arg(long)]
+        fee_satoshi: Option<u64>,
     },
 }
 
@@ -161,6 +168,34 @@ pub enum ScenarioCommand {
         primary: usize,
         #[arg(long, default_value_t = 1)]
         secondary: usize,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum LabCommand {
+    List {
+        #[arg(long)]
+        labs_root: Option<String>,
+    },
+    Show {
+        id: String,
+        #[arg(long)]
+        labs_root: Option<String>,
+    },
+    Setup {
+        id: String,
+        #[arg(long)]
+        labs_root: Option<String>,
+    },
+    Run {
+        id: String,
+        #[arg(long)]
+        labs_root: Option<String>,
+    },
+    Verify {
+        id: String,
+        #[arg(long)]
+        labs_root: Option<String>,
     },
 }
 
@@ -275,6 +310,7 @@ const ROOT_COMMANDS: &[&str] = &[
     "mine",
     "persistence",
     "scenario",
+    "lab",
     "alias",
     "macro",
     "help",
@@ -443,6 +479,166 @@ fn save_state(network: &BlockchainNetwork, path: &str) -> Result<(), String> {
         .map_err(|err| format!("State kaydedilemedi ({}): {}", path, err))
 }
 
+fn print_lab_manifest(manifest: &LabManifest, dir: &Path, json: bool) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct LabShowView<'a> {
+        id: &'a str,
+        title: &'a str,
+        difficulty: &'a str,
+        estimated_minutes: u32,
+        objectives: &'a [String],
+        aliases: &'a [String],
+        path: String,
+        step_count: usize,
+        assertion_count: usize,
+    }
+
+    let view = LabShowView {
+        id: &manifest.id,
+        title: &manifest.title,
+        difficulty: &manifest.difficulty,
+        estimated_minutes: manifest.estimated_minutes,
+        objectives: &manifest.objectives,
+        aliases: &manifest.aliases,
+        path: dir.display().to_string(),
+        step_count: manifest.steps.len(),
+        assertion_count: manifest.assertions.len(),
+    };
+
+    if json {
+        print_json(&view)
+    } else {
+        println!("Lab        : {} — {}", view.id, view.title);
+        println!("Zorluk     : {}", view.difficulty);
+        println!("Süre       : ~{} dk", view.estimated_minutes);
+        println!("Dizin      : {}", view.path);
+        println!("Adım sayısı: {}", view.step_count);
+        println!("Assertion  : {}", view.assertion_count);
+        if !view.aliases.is_empty() {
+            println!("Aliasler   : {}", view.aliases.join(", "));
+        }
+        if !view.objectives.is_empty() {
+            println!("Hedefler:");
+            for objective in view.objectives {
+                println!("  - {}", objective);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn execute_lab_command(state_path: &str, json: bool, command: LabCommand) -> Result<(), String> {
+    match command {
+        LabCommand::List { labs_root } => {
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let labs = lab::discover_labs(&root)?;
+            if json {
+                print_json(&labs)?;
+            } else if labs.is_empty() {
+                println!("Lab bulunamadı ({})", root.display());
+            } else {
+                println!("Akademik laboratuvarlar:");
+                for item in labs {
+                    println!(
+                        "- {} | {} | {} | ~{} dk",
+                        item.id, item.title, item.difficulty, item.estimated_minutes
+                    );
+                }
+            }
+            Ok(())
+        }
+        LabCommand::Show { id, labs_root } => {
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let (manifest, dir) = lab::load_lab(&root, &id)?;
+            print_lab_manifest(&manifest, &dir, json)
+        }
+        LabCommand::Setup { id, labs_root } => {
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let (manifest, _) = lab::load_lab(&root, &id)?;
+            lab::setup_lab(&manifest, state_path)?;
+            let result = ActionResult {
+                message: format!("Lab hazırlandı: {} (state={})", manifest.id, state_path),
+            };
+            if json {
+                print_json(&result)?;
+            } else {
+                println!("{}", result.message);
+                if !manifest.aliases.is_empty() {
+                    println!(
+                        "Node aliasleri: {}",
+                        manifest
+                            .aliases
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, name)| format!("{}={}", idx, name))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
+            }
+            Ok(())
+        }
+        LabCommand::Run { id, labs_root } => {
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let (manifest, _) = lab::load_lab(&root, &id)?;
+            let report = lab::run_lab(&manifest, state_path)?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("Lab: {}", report.lab_id);
+                for step in &report.steps {
+                    println!(
+                        "  step [{}] {} — {}",
+                        if step.ok { "ok" } else { "fail" },
+                        step.action,
+                        step.detail
+                    );
+                }
+                for check in &report.checks {
+                    println!(
+                        "  check [{}] {} — {}",
+                        if check.passed { "ok" } else { "fail" },
+                        check.assertion,
+                        check.detail
+                    );
+                }
+                println!("Sonuç: {}", if report.passed { "PASSED" } else { "FAILED" });
+            }
+            if report.passed {
+                Ok(())
+            } else {
+                Err(format!("Lab doğrulaması başarısız: {}", report.lab_id))
+            }
+        }
+        LabCommand::Verify { id, labs_root } => {
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let (manifest, _) = lab::load_lab(&root, &id)?;
+            // Manual student verify path only checks state assertions that do not
+            // depend on in-memory demo flags unless those flags are irrelevant.
+            let report = lab::verify_lab(&manifest, state_path, DemoFlags::default())?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("Lab verify: {}", report.lab_id);
+                for check in &report.checks {
+                    println!(
+                        "  check [{}] {} — {}",
+                        if check.passed { "ok" } else { "fail" },
+                        check.assertion,
+                        check.detail
+                    );
+                }
+                println!("Sonuç: {}", if report.passed { "PASSED" } else { "FAILED" });
+            }
+            if report.passed {
+                Ok(())
+            } else {
+                Err(format!("Lab verify başarısız: {}", report.lab_id))
+            }
+        }
+    }
+}
+
 fn alias_file_path(state_path: &str) -> String {
     let state_path = Path::new(state_path);
     let base_dir = state_path.parent().unwrap_or_else(|| Path::new("."));
@@ -509,6 +705,7 @@ fn namespaced_subcommands(root: &str) -> &'static [&'static str] {
         "mine" => &["once"],
         "persistence" => &["info", "save", "load"],
         "scenario" => &["list", "run"],
+        "lab" => &["list", "show", "setup", "run", "verify"],
         "alias" => &["list", "add", "remove"],
         "macro" => &["list", "add", "remove", "run"],
         _ => &[],
@@ -555,7 +752,7 @@ fn history_file_path(state_path: &str) -> String {
 
 fn print_repl_help() {
     println!(
-        "Komutlar: init, config, status, nodes, chain, tx, mempool, mine, persistence, scenario, alias, macro"
+        "Komutlar: init, config, status, nodes, chain, tx, mempool, mine, persistence, scenario, lab, alias, macro"
     );
     println!("Macro kısayolu: !<macro_adi>");
     println!("Yardım: help");
@@ -889,16 +1086,21 @@ fn execute_command(
                 sender_id,
                 recipient_id,
                 amount_coin,
+                fee_satoshi,
             } => {
                 let mut network = load_state(state_path)?;
                 if sender_id >= network.node_count() || recipient_id >= network.node_count() {
                     return Err("Geçersiz sender_id veya recipient_id".to_string());
                 }
                 let amount_satoshi = coin_to_satoshi(amount_coin)?;
+                let fee = fee_satoshi.unwrap_or(1_000);
                 let recipient_address = network.get_node_address(recipient_id);
-                let Some(tx) =
-                    network.create_transaction(sender_id, &recipient_address, amount_satoshi)
-                else {
+                let Some(tx) = network.create_transaction_with_fee(
+                    sender_id,
+                    &recipient_address,
+                    amount_satoshi,
+                    fee,
+                ) else {
                     return Err("İşlem oluşturulamadı".to_string());
                 };
                 save_state(&network, state_path)?;
@@ -909,6 +1111,7 @@ fn execute_command(
                     sender_id: usize,
                     recipient_id: usize,
                     amount_satoshi: u64,
+                    fee_satoshi: u64,
                     mempool_count: usize,
                 }
                 let result = TxCreateResult {
@@ -916,14 +1119,15 @@ fn execute_command(
                     sender_id,
                     recipient_id,
                     amount_satoshi,
+                    fee_satoshi: fee,
                     mempool_count: network.mempool.len(),
                 };
                 if json {
                     print_json(&result)?;
                 } else {
                     println!(
-                        "İşlem oluşturuldu: {} | mempool={} ",
-                        result.tx_id, result.mempool_count
+                        "İşlem oluşturuldu: {} | fee={} | mempool={}",
+                        result.tx_id, result.fee_satoshi, result.mempool_count
                     );
                 }
                 Ok(())
@@ -1124,6 +1328,7 @@ fn execute_command(
                 _ => Err(format!("Bilinmeyen senaryo: {}", name)),
             },
         },
+        Command::Lab { command } => execute_lab_command(state_path, json, command),
         Command::Alias { command } => match command {
             AliasCommand::List => {
                 let alias_store = load_alias_store(state_path)?;
