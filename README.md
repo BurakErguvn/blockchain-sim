@@ -22,6 +22,7 @@ If you prefer Turkish documentation, see: [README_TR.md](README_TR.md)
 - [HTTP API Usage Guide](docs/en/08-http-api-usage.md)
 - [Academic Labs](docs/en/09-academic-labs.md)
 - [Guided Student Mode](docs/en/10-guided-student-mode.md)
+- [Ratatui Student Interface](docs/en/11-ratatui-interface.md)
 
 ## Minimal Run Command
 
@@ -36,6 +37,7 @@ cargo run --bin sim_cli -- status
 cargo run --bin api_server
 cargo run --bin sim_cli -- --profile classroom lab list
 cargo run --bin sim_cli -- --profile classroom lab run 01-utxo-and-transfers --json
+cargo run --bin sim_cli -- --profile classroom tui
 ```
 
 Academic lab package: [labs/README.md](labs/README.md)

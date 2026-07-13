@@ -7,4 +7,5 @@ pub mod learn;
 pub mod network;
 pub mod node;
 pub mod transaction;
+pub mod tui;
 pub mod wallet;
