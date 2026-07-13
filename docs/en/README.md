@@ -14,6 +14,7 @@ This directory provides a modular technical documentation structure for the proj
 8. [HTTP API Usage Guide](08-http-api-usage.md)
 9. [Academic Labs](09-academic-labs.md)
 10. [Guided Student Mode](10-guided-student-mode.md)
+11. [Ratatui Student Interface](11-ratatui-interface.md)
 
 ## Recommended Reading Order
 
@@ -27,3 +28,4 @@ For a structured technical review, the following order is recommended:
 6. Command-Line Interface Reference
 7. HTTP API Usage Guide
 8. Academic Labs (`labs/` package)
+9. Ratatui Student Interface

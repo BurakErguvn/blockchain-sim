@@ -194,6 +194,14 @@ cargo run --bin sim_cli -- --profile classroom learn resume
 cargo run --bin sim_cli -- --profile classroom learn reset
 ```
 
+#### TUI (tam ekran öğrenci arayüzü)
+
+```bash
+cargo run --bin sim_cli -- --profile classroom tui
+```
+
+Lab/görev seçimi, zincir hareketi, node bakiyeleri, mempool ve olay akışı aynı ekranda görüntülenir. Ayrıntılar: [11-ratatui-arayuzu.md](11-ratatui-arayuzu.md).
+
 `tx create` için isteğe bağlı ücret:
 
 ```bash

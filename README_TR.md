@@ -22,6 +22,7 @@ Bu README dosyasını hızlı bir başlangıç noktası gibi düşünebilirsin: 
 - [HTTP API Kullanım Kılavuzu](docs/08-http-api-kullanimi.md)
 - [Akademik Laboratuvarlar](docs/09-akademik-laboratuvarlar.md)
 - [Yönlendirmeli Öğrenci Modu](docs/10-yonlendirmeli-ogrenci-modu.md)
+- [Ratatui Öğrenci Arayüzü](docs/11-ratatui-arayuzu.md)
 
 ## Kısa Çalıştırma Notu
 
@@ -36,6 +37,7 @@ cargo run --bin sim_cli -- status
 cargo run --bin api_server
 cargo run --bin sim_cli -- --profile classroom lab list
 cargo run --bin sim_cli -- --profile classroom lab run 01-utxo-and-transfers --json
+cargo run --bin sim_cli -- --profile classroom tui
 ```
 
 Akademik laboratuvar paketi: [labs/README.md](labs/README.md)

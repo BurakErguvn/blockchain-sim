@@ -81,6 +81,11 @@ pub enum Command {
         #[command(subcommand)]
         command: LearnCommand,
     },
+    /// Open the interactive classroom dashboard.
+    Tui {
+        #[arg(long)]
+        labs_root: Option<String>,
+    },
     Alias {
         #[command(subcommand)]
         command: AliasCommand,
@@ -354,6 +359,7 @@ const ROOT_COMMANDS: &[&str] = &[
     "scenario",
     "lab",
     "learn",
+    "tui",
     "alias",
     "macro",
     "help",
@@ -979,7 +985,7 @@ fn history_file_path(state_path: &str) -> String {
 
 fn print_repl_help() {
     println!(
-        "Komutlar: init, config, status, nodes, chain, tx, mempool, mine, persistence, scenario, lab, learn, alias, macro"
+        "Komutlar: init, config, status, nodes, chain, tx, mempool, mine, persistence, scenario, lab, learn, tui, alias, macro"
     );
     println!("Macro kısayolu: !<macro_adi>");
     println!("Yardım: help");
@@ -1557,6 +1563,7 @@ fn execute_command(
         },
         Command::Lab { command } => execute_lab_command(state_path, json, command),
         Command::Learn { command } => execute_learn_command(state_path, json, command),
+        Command::Tui { labs_root } => crate::tui::run(state_path, labs_root.as_deref()),
         Command::Alias { command } => match command {
             AliasCommand::List => {
                 let alias_store = load_alias_store(state_path)?;

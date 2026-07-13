@@ -14,6 +14,7 @@ Bu dizin, projenin teknik dokümantasyonunu modüler bir yapıda sunar. Amaç, k
 8. [HTTP API Kullanım Kılavuzu](08-http-api-kullanimi.md)
 9. [Akademik Laboratuvarlar](09-akademik-laboratuvarlar.md)
 10. [Yönlendirmeli Öğrenci Modu](10-yonlendirmeli-ogrenci-modu.md)
+11. [Ratatui Öğrenci Arayüzü](11-ratatui-arayuzu.md)
 
 ## Kullanım Önerisi
 
@@ -26,3 +27,4 @@ Teknik inceleme sırasında aşağıdaki okuma sırası önerilir:
 5. Uygulamalı kullanım için **Kurulum ve Çalıştırma** ile **Komut Satırı Arayüzü**
 6. Programatik entegrasyon için **HTTP API Kullanım Kılavuzu**
 7. Ders/laboratuvar kullanımı için **Akademik Laboratuvarlar** ve `labs/` paketi
+8. Tam ekran etkileşim için **Ratatui Öğrenci Arayüzü**

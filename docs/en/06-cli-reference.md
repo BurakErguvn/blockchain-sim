@@ -194,6 +194,14 @@ cargo run --bin sim_cli -- --profile classroom learn resume
 cargo run --bin sim_cli -- --profile classroom learn reset
 ```
 
+#### Full-screen TUI
+
+```bash
+cargo run --bin sim_cli -- --profile classroom tui
+```
+
+Lab/task selection, chain movement, node balances, mempool contents, and activity events share one dashboard. See [11-ratatui-interface.md](11-ratatui-interface.md).
+
 Optional fee control:
 
 ```bash
