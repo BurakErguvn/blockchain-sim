@@ -138,6 +138,15 @@ Bu bölüm, README yapısının modüler hale getirilmesinden sonra çekirdeğe 
 - `tx create --fee-satoshi` ile ücret kontrollü mempool deneyleri kolaylaştırıldı.
 - Deterministik lab fonlaması için `select_validator` API’si eklendi.
 
+### 9) Yönlendirmeli Öğrenci Modu
+
+- `sim_cli learn` komut grubu eklendi:
+  - `start|status|hint|check|next|resume|reset`
+- `lab.toml` içine `guided_steps` alanı eklendi.
+- İlk yönlendirmeli paket: UTXO, imza/bütünlük, fork/reorg.
+- Öğrenme oturumu blockchain state’ten ayrı saklanır.
+- Başarısız kontroller pedagojik üç parçalı geri bildirim döner.
+
 ## Güncel Yol Haritası
 
 ### Kısa Vadeli

@@ -21,6 +21,7 @@ If you prefer Turkish documentation, see: [README_TR.md](README_TR.md)
 - [Development Notes and Roadmap](docs/en/07-development-notes-and-roadmap.md)
 - [HTTP API Usage Guide](docs/en/08-http-api-usage.md)
 - [Academic Labs](docs/en/09-academic-labs.md)
+- [Guided Student Mode](docs/en/10-guided-student-mode.md)
 
 ## Minimal Run Command
 

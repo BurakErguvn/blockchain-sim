@@ -21,6 +21,7 @@ Bu README dosyasını hızlı bir başlangıç noktası gibi düşünebilirsin: 
 - [Geliştirme Notları ve Yol Haritası](docs/07-gelisim-notlari-ve-yol-haritasi.md)
 - [HTTP API Kullanım Kılavuzu](docs/08-http-api-kullanimi.md)
 - [Akademik Laboratuvarlar](docs/09-akademik-laboratuvarlar.md)
+- [Yönlendirmeli Öğrenci Modu](docs/10-yonlendirmeli-ogrenci-modu.md)
 
 ## Kısa Çalıştırma Notu
 

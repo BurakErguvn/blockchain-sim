@@ -14,6 +14,7 @@ use strsim::jaro_winkler;
 
 use crate::config::{Settings, SettingsLoadOptions, SettingsResolution};
 use crate::lab::{self, DemoFlags, LabManifest};
+use crate::learn;
 use crate::network::BlockchainNetwork;
 
 #[derive(Debug, Parser)]
@@ -75,6 +76,10 @@ pub enum Command {
     Lab {
         #[command(subcommand)]
         command: LabCommand,
+    },
+    Learn {
+        #[command(subcommand)]
+        command: LearnCommand,
     },
     Alias {
         #[command(subcommand)]
@@ -200,6 +205,43 @@ pub enum LabCommand {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum LearnCommand {
+    Start {
+        id: String,
+        #[arg(long)]
+        labs_root: Option<String>,
+    },
+    Status {
+        #[arg(long)]
+        labs_root: Option<String>,
+    },
+    Hint {
+        #[arg(long)]
+        labs_root: Option<String>,
+    },
+    Check {
+        #[arg(long)]
+        labs_root: Option<String>,
+        #[arg(long)]
+        ack: Option<String>,
+    },
+    Next {
+        #[arg(long)]
+        labs_root: Option<String>,
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+    Resume {
+        #[arg(long)]
+        labs_root: Option<String>,
+    },
+    Reset {
+        #[arg(long)]
+        lab_id: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum AliasCommand {
     List,
     Add {
@@ -311,6 +353,7 @@ const ROOT_COMMANDS: &[&str] = &[
     "persistence",
     "scenario",
     "lab",
+    "learn",
     "alias",
     "macro",
     "help",
@@ -491,6 +534,7 @@ fn print_lab_manifest(manifest: &LabManifest, dir: &Path, json: bool) -> Result<
         path: String,
         step_count: usize,
         assertion_count: usize,
+        guided_step_count: usize,
     }
 
     let view = LabShowView {
@@ -503,6 +547,7 @@ fn print_lab_manifest(manifest: &LabManifest, dir: &Path, json: bool) -> Result<
         path: dir.display().to_string(),
         step_count: manifest.steps.len(),
         assertion_count: manifest.assertions.len(),
+        guided_step_count: manifest.guided_steps.len(),
     };
 
     if json {
@@ -514,6 +559,7 @@ fn print_lab_manifest(manifest: &LabManifest, dir: &Path, json: bool) -> Result<
         println!("Dizin      : {}", view.path);
         println!("Adım sayısı: {}", view.step_count);
         println!("Assertion  : {}", view.assertion_count);
+        println!("Guided     : {}", view.guided_step_count);
         if !view.aliases.is_empty() {
             println!("Aliasler   : {}", view.aliases.join(", "));
         }
@@ -639,6 +685,184 @@ fn execute_lab_command(state_path: &str, json: bool, command: LabCommand) -> Res
     }
 }
 
+fn print_guided_step(step: &learn::GuidedStepView) {
+    println!("Progress: {}/{} | {}", step.index, step.total, step.title);
+    println!("Task:");
+    println!("  {}", step.instruction);
+    if !step.concept.is_empty() {
+        println!("Concept: {}", step.concept);
+    }
+    if !step.command_template.is_empty() {
+        println!("Command template:");
+        println!("  {}", step.command_template);
+    }
+    if !step.discussion_prompt.is_empty() {
+        println!("Discussion:");
+        println!("  {}", step.discussion_prompt);
+    }
+    println!(
+        "Hints: {}/{} revealed (use `learn hint`)",
+        step.hints_revealed, step.hints_available
+    );
+}
+
+fn execute_learn_command(
+    state_path: &str,
+    json: bool,
+    command: LearnCommand,
+) -> Result<(), String> {
+    match command {
+        LearnCommand::Start { id, labs_root } => {
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let (manifest, _) = lab::load_lab(&root, &id)?;
+            let (_session, report) = learn::start_learning(&manifest, state_path)?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("Guided lab started: {} — {}", report.lab_id, report.title);
+                println!("Session: {}", report.session_id);
+                if !report.aliases.is_empty() {
+                    println!(
+                        "Aliases: {}",
+                        report
+                            .aliases
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, name)| format!("{}={}", idx, name))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
+                print_guided_step(&report.step);
+            }
+            Ok(())
+        }
+        LearnCommand::Status { labs_root } => {
+            let session = learn::load_active_session(state_path)?;
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let (manifest, _) = lab::load_lab(&root, &session.lab_id)?;
+            let report = learn::status_report(&manifest, &session)?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!(
+                    "Session {} | {} | {:?}",
+                    report.session_id, report.lab_id, report.status
+                );
+                println!(
+                    "Progress: {}/{} ({}%) | attempts={} | hints={}",
+                    report.completed_count,
+                    report.total_steps,
+                    report.progress_percent,
+                    report.attempts,
+                    report.hints_used_total
+                );
+                if let Some(step) = &report.step {
+                    print_guided_step(step);
+                } else {
+                    println!("Laboratuvar tamamlandı.");
+                }
+            }
+            Ok(())
+        }
+        LearnCommand::Hint { labs_root } => {
+            let mut session = learn::load_active_session(state_path)?;
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let (manifest, _) = lab::load_lab(&root, &session.lab_id)?;
+            let report = learn::reveal_hint(&manifest, &mut session)?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!(
+                    "Hint L{} for {}{}",
+                    report.hint_level,
+                    report.step_id,
+                    if report.more_hints {
+                        " (more available)"
+                    } else {
+                        " (final hint)"
+                    }
+                );
+                println!("  {}", report.hint);
+            }
+            Ok(())
+        }
+        LearnCommand::Check { labs_root, ack } => {
+            let mut session = learn::load_active_session(state_path)?;
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let (manifest, _) = lab::load_lab(&root, &session.lab_id)?;
+            let report = learn::check_current_step(&manifest, &mut session, ack.as_deref())?;
+            if json {
+                print_json(&report)?;
+            } else if report.passed {
+                println!("Check PASSED for {}", report.step_id);
+                println!("Observed: {}", report.observed);
+                if report.lab_completed {
+                    println!("Lab completed. Great work.");
+                } else if let Some(step) = &report.step {
+                    println!("Advanced to next step:");
+                    print_guided_step(step);
+                }
+            } else {
+                println!("Check NOT completed for {}", report.step_id);
+                println!("Observed:");
+                println!("  {}", report.observed);
+                println!("Likely cause:");
+                println!("  {}", report.likely_cause);
+                println!("Next action:");
+                println!("  {}", report.next_action);
+            }
+            if report.passed {
+                Ok(())
+            } else {
+                Err(format!("Adım henüz tamamlanmadı: {}", report.step_id))
+            }
+        }
+        LearnCommand::Next { labs_root, force } => {
+            let mut session = learn::load_active_session(state_path)?;
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let (manifest, _) = lab::load_lab(&root, &session.lab_id)?;
+            let report = learn::advance_step(&manifest, &mut session, force)?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("{}", report.message);
+                if let Some(step) = &report.step {
+                    print_guided_step(step);
+                }
+            }
+            Ok(())
+        }
+        LearnCommand::Resume { labs_root } => {
+            let session = learn::load_active_session(state_path)?;
+            let root = lab::labs_root_from(labs_root.as_deref());
+            let (manifest, _) = lab::load_lab(&root, &session.lab_id)?;
+            let report = learn::status_report(&manifest, &session)?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("Resumed session {}", report.session_id);
+                if let Some(step) = &report.step {
+                    print_guided_step(step);
+                } else {
+                    println!("Laboratuvar tamamlanmış.");
+                }
+            }
+            Ok(())
+        }
+        LearnCommand::Reset { lab_id } => {
+            let message = learn::reset_learning(state_path, lab_id.as_deref())?;
+            let result = ActionResult { message };
+            if json {
+                print_json(&result)?;
+            } else {
+                println!("{}", result.message);
+            }
+            Ok(())
+        }
+    }
+}
+
 fn alias_file_path(state_path: &str) -> String {
     let state_path = Path::new(state_path);
     let base_dir = state_path.parent().unwrap_or_else(|| Path::new("."));
@@ -706,6 +930,9 @@ fn namespaced_subcommands(root: &str) -> &'static [&'static str] {
         "persistence" => &["info", "save", "load"],
         "scenario" => &["list", "run"],
         "lab" => &["list", "show", "setup", "run", "verify"],
+        "learn" => &[
+            "start", "status", "hint", "check", "next", "resume", "reset",
+        ],
         "alias" => &["list", "add", "remove"],
         "macro" => &["list", "add", "remove", "run"],
         _ => &[],
@@ -752,7 +979,7 @@ fn history_file_path(state_path: &str) -> String {
 
 fn print_repl_help() {
     println!(
-        "Komutlar: init, config, status, nodes, chain, tx, mempool, mine, persistence, scenario, lab, alias, macro"
+        "Komutlar: init, config, status, nodes, chain, tx, mempool, mine, persistence, scenario, lab, learn, alias, macro"
     );
     println!("Macro kısayolu: !<macro_adi>");
     println!("Yardım: help");
@@ -1329,6 +1556,7 @@ fn execute_command(
             },
         },
         Command::Lab { command } => execute_lab_command(state_path, json, command),
+        Command::Learn { command } => execute_learn_command(state_path, json, command),
         Command::Alias { command } => match command {
             AliasCommand::List => {
                 let alias_store = load_alias_store(state_path)?;

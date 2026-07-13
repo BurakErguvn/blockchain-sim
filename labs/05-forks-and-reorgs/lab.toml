@@ -33,3 +33,93 @@ type = "canonical_tips_match"
 [[assertions]]
 type = "chain_height_min"
 expected = 2
+
+[[guided_steps]]
+id = "inspect-tip"
+title = "Inspect the current tip"
+instruction = "Confirm that genesis exists and a tip hash is present."
+concept = "Chain"
+command_template = "chain tip"
+hint_levels = [
+  "Look at the chain tip for node 0's view.",
+  "JSON output includes index and hash.",
+  "Run: cargo run --bin sim_cli -- --profile classroom --json chain tip",
+]
+feedback_fail = "A tip hash should already exist after lab setup."
+discussion_prompt = "What does the tip represent?"
+
+[guided_steps.check]
+type = "tip_hash_present"
+
+[[guided_steps]]
+id = "extend-chain"
+title = "Extend the common chain"
+instruction = "Mine one additional block so the network has a shared non-genesis tip before the fork demo."
+concept = "Mining"
+command_template = "mine once"
+hint_levels = [
+  "Fork demos are clearer after at least one post-genesis block.",
+  "Use mine once.",
+  "Run: cargo run --bin sim_cli -- --profile classroom mine once",
+]
+feedback_fail = "Chain height should be at least 2 before the fork exercise."
+discussion_prompt = "Why do nodes need a common ancestor?"
+
+[guided_steps.check]
+type = "chain_height_min"
+expected = 2
+
+[[guided_steps]]
+id = "run-fork-reorg"
+title = "Run the fork and reorg demo"
+instruction = "Use learn check to simulate a fork/reorg between primary and secondary nodes, then verify that tips converge."
+concept = "Reorg"
+command_template = "learn check"
+hint_levels = [
+  "This step executes simulate_fork_and_reorg safely inside the learner check.",
+  "Expected reorg depth is 1 and all tips should match afterwards.",
+  "Run: cargo run --bin sim_cli -- --profile classroom learn check",
+]
+feedback_fail = "Reorg depth should be 1 and all node tips should match."
+discussion_prompt = "Which rule selected the canonical chain?"
+
+[guided_steps.check]
+type = "run_fork_reorg_demo"
+primary = 0
+secondary = 1
+expected_depth = 1
+
+[[guided_steps]]
+id = "confirm-canonical"
+title = "Confirm canonical tips"
+instruction = "Double-check that every node shares the same tip after healing."
+concept = "Consensus"
+command_template = "nodes list"
+hint_levels = [
+  "All nodes should report the same chain tip hash.",
+  "Compare blockchain lengths and tip hashes.",
+  "Run: cargo run --bin sim_cli -- --profile classroom --json nodes list",
+]
+feedback_fail = "Node tips still diverge."
+discussion_prompt = "What would a temporary network partition change in this demo?"
+
+[guided_steps.check]
+type = "canonical_tips_match"
+
+[[guided_steps]]
+id = "reflect-forks"
+title = "Reflect on forks"
+instruction = "Acknowledge that 'longest chain' is a simplification and this simulator also considers work score and deterministic tie-breaks."
+concept = "Consensus"
+command_template = "learn check --ack understood"
+hint_levels = [
+  "This is a concept acknowledgement step.",
+  "Use the expected token after reading the discussion prompt.",
+  "Run: cargo run --bin sim_cli -- --profile classroom learn check --ack understood",
+]
+feedback_fail = "Acknowledge with --ack understood."
+discussion_prompt = "Equal-length forks may need total work and tip-hash tie-breaks."
+
+[guided_steps.check]
+type = "acknowledge"
+token = "understood"
