@@ -1,0 +1,18 @@
+# Classroom profile for academic lab sessions.
+# Usage:
+#   cargo run --bin sim_cli -- --profile classroom init --force
+#   cargo run --bin sim_cli -- --profile classroom lab list
+
+[app]
+initial_node_count = 3
+
+[network]
+difficulty = 1
+block_time_seconds = 5
+
+[persistence]
+state_path = "./data/classroom_state.json"
+
+[api]
+bind_host = "127.0.0.1"
+bind_port = 3000

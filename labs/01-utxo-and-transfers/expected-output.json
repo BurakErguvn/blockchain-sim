@@ -1,0 +1,10 @@
+{
+  "lab_id": "01-utxo-and-transfers",
+  "passed": true,
+  "checks": [
+    {"assertion": "node_count==3", "passed": true},
+    {"assertion": "balance_min node=1 amount=1000000000", "passed": true},
+    {"assertion": "chain_height_min>=2", "passed": true},
+    {"assertion": "tip_hash_present", "passed": true}
+  ]
+}

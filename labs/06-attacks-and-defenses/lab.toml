@@ -1,0 +1,48 @@
+id = "06-attacks-and-defenses"
+title = "Attacks and Defenses"
+difficulty = "advanced"
+estimated_minutes = 40
+objectives = [
+  "Attempt double-spend and observe rejection",
+  "Map attacks to validation layers",
+  "Discuss simulation limits versus real networks",
+]
+aliases = ["Alice", "Bob", "Carol"]
+
+[setup]
+nodes = 3
+difficulty = 1
+block_time_seconds = 1
+mine_genesis = true
+
+[[steps]]
+action = "demonstrate_double_spend"
+from = 0
+to_a = 1
+to_b = 2
+amount_coin = 5.0
+
+[[steps]]
+action = "demonstrate_signature_tamper"
+from = 0
+to = 1
+amount_coin = 2.0
+
+[[steps]]
+action = "mine_block"
+
+[[steps]]
+action = "demonstrate_chain_tamper"
+node_id = 0
+
+[[assertions]]
+type = "demo_flag_true"
+key = "double_spend_second_rejected"
+
+[[assertions]]
+type = "demo_flag_true"
+key = "signature_tamper_rejected"
+
+[[assertions]]
+type = "demo_flag_true"
+key = "chain_tamper_invalid"

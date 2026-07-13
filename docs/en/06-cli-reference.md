@@ -172,6 +172,24 @@ REPL shortcut:
 !demo
 ```
 
+#### Academic labs
+
+```bash
+cargo run --bin sim_cli -- --profile classroom lab list
+cargo run --bin sim_cli -- --profile classroom lab show 01-utxo-and-transfers
+cargo run --bin sim_cli -- --profile classroom lab setup 01-utxo-and-transfers
+cargo run --bin sim_cli -- --profile classroom lab run 01-utxo-and-transfers --json
+cargo run --bin sim_cli -- --profile classroom lab verify 01-utxo-and-transfers --json
+```
+
+Optional fee control:
+
+```bash
+cargo run --bin sim_cli -- tx create --sender-id 0 --recipient-id 1 --amount-coin 1 --fee-satoshi 50000
+```
+
+Details: [09-academic-labs.md](09-academic-labs.md)
+
 ---
 
 ## 2) Legacy Interactive CLI (`cargo run`)

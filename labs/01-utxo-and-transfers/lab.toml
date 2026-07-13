@@ -1,0 +1,41 @@
+id = "01-utxo-and-transfers"
+title = "UTXO and Transfers"
+difficulty = "beginner"
+estimated_minutes = 25
+objectives = [
+  "Explain the UTXO model",
+  "Identify transaction inputs, outputs, and change",
+  "Observe how balances change only after confirmation",
+]
+aliases = ["Alice", "Bob", "Carol"]
+
+[setup]
+nodes = 3
+difficulty = 1
+block_time_seconds = 1
+mine_genesis = true
+
+[[steps]]
+action = "create_transaction"
+from = 0
+to = 1
+amount_coin = 10.0
+
+[[steps]]
+action = "mine_block"
+
+[[assertions]]
+type = "node_count"
+expected = 3
+
+[[assertions]]
+type = "balance_min"
+node = 1
+amount_satoshi = 1000000000
+
+[[assertions]]
+type = "chain_height_min"
+expected = 2
+
+[[assertions]]
+type = "tip_hash_present"

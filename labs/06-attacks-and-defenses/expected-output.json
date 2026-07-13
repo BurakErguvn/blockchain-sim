@@ -1,0 +1,9 @@
+{
+  "lab_id": "06-attacks-and-defenses",
+  "passed": true,
+  "checks": [
+    {"assertion": "demo_flag_true:double_spend_second_rejected", "passed": true},
+    {"assertion": "demo_flag_true:signature_tamper_rejected", "passed": true},
+    {"assertion": "demo_flag_true:chain_tamper_invalid", "passed": true}
+  ]
+}

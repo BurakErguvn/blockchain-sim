@@ -112,3 +112,9 @@ jobs:
 
       - name: Smoke test config paths
         run: cargo run --bin sim_cli -- config paths
+
+      - name: Smoke test classroom lab list
+        run: cargo run --bin sim_cli -- --profile classroom lab list
+
+      - name: Smoke test academic lab run
+        run: cargo run --bin sim_cli -- --profile classroom lab run 01-utxo-and-transfers --json

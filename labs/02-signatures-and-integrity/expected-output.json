@@ -1,0 +1,8 @@
+{
+  "lab_id": "02-signatures-and-integrity",
+  "passed": true,
+  "checks": [
+    {"assertion": "demo_flag_true:signature_tamper_rejected", "passed": true},
+    {"assertion": "node_count==3", "passed": true}
+  ]
+}

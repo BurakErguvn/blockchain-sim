@@ -127,6 +127,17 @@ This section captures the major technical additions introduced after the modular
   - `config validate`,
   - `config paths`.
 
+### 8) Academic Laboratory Package
+
+- Added 6 pedagogical modules under `labs/` (UTXO, signatures, mempool, PoW, forks/reorgs, attacks).
+- Each module includes student guide, questions, rubric, instructor notes, and a `lab.toml` manifest.
+- Added `config/classroom.toml` classroom profile.
+- Added `sim_cli lab` command group:
+  - `lab list|show|setup|run|verify`
+- File-driven lab runner supports automated assertion grading with JSON output.
+- Added `tx create --fee-satoshi` for fee-controlled mempool experiments.
+- Added `select_validator` for deterministic lab funding (Alice/node 0).
+
 ## Updated Roadmap
 
 ### Short-Term
@@ -134,15 +145,18 @@ This section captures the major technical additions introduced after the modular
 1. Systematically resolve compiler warnings and enforce stricter lint gates.
 2. Formalize CLI command contracts (JSON schemas and examples).
 3. Harden API controls (CORS, auth, and rate limiting baseline).
+4. Complete English localization of student-facing lab texts.
 
 ### Mid-Term
 
 1. Add argument-level REPL autocomplete and contextual in-shell help.
 2. Extend scenario/macro execution to file-based script workflows.
 3. Improve network simulation realism with richer delay and partition models.
+4. Add ephemeral-key/privacy mode for classroom sessions.
 
 ### Long-Term
 
 1. Optimize snapshot + incremental persistence layout for larger histories.
 2. Introduce unified observability (event stream/metrics) across CLI and API.
 3. Automate consensus benchmarking across broader scenario matrices.
+4. LMS/LTI integration and instructor dashboard.

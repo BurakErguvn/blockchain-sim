@@ -1,0 +1,9 @@
+{
+  "lab_id": "04-proof-of-work",
+  "passed": true,
+  "checks": [
+    {"assertion": "difficulty==1", "passed": true},
+    {"assertion": "chain_height_min>=2", "passed": true},
+    {"assertion": "tip_hash_present", "passed": true}
+  ]
+}
