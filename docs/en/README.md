@@ -13,6 +13,7 @@ This directory provides a modular technical documentation structure for the proj
 7. [Development Notes and Roadmap](07-development-notes-and-roadmap.md)
 8. [HTTP API Usage Guide](08-http-api-usage.md)
 9. [Academic Labs](09-academic-labs.md)
+10. [Guided Student Mode](10-guided-student-mode.md)
 
 ## Recommended Reading Order
 

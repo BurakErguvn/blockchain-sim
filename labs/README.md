@@ -15,6 +15,16 @@ cargo run --bin sim_cli -- --profile classroom lab run 01-utxo-and-transfers --j
 cargo run --bin sim_cli -- --profile classroom lab setup 01-utxo-and-transfers
 ```
 
+## Yönlendirmeli öğrenci modu
+
+```bash
+cargo run --bin sim_cli -- --profile classroom learn start 01-utxo-and-transfers
+cargo run --bin sim_cli -- --profile classroom learn hint
+cargo run --bin sim_cli -- --profile classroom learn check
+```
+
+Ayrıntılar: [docs/10-yonlendirmeli-ogrenci-modu.md](../docs/10-yonlendirmeli-ogrenci-modu.md)
+
 ## Modüller
 
 | ID | Başlık | Seviye | Süre |

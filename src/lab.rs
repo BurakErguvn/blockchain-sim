@@ -22,6 +22,77 @@ pub struct LabManifest {
     pub steps: Vec<LabStep>,
     #[serde(default)]
     pub assertions: Vec<LabAssertion>,
+    #[serde(default)]
+    pub guided_steps: Vec<GuidedStep>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuidedStep {
+    pub id: String,
+    pub title: String,
+    pub instruction: String,
+    #[serde(default)]
+    pub concept: String,
+    #[serde(default)]
+    pub command_template: String,
+    #[serde(default)]
+    pub hint_levels: Vec<String>,
+    #[serde(default)]
+    pub feedback_fail: String,
+    #[serde(default)]
+    pub discussion_prompt: String,
+    pub check: GuidedCheck,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum GuidedCheck {
+    NodeCount {
+        expected: usize,
+    },
+    BalanceMin {
+        node: usize,
+        amount_satoshi: u64,
+    },
+    BalanceEquals {
+        node: usize,
+        amount_satoshi: u64,
+    },
+    MempoolCountMin {
+        expected: usize,
+    },
+    MempoolCountEquals {
+        expected: usize,
+    },
+    ChainHeightMin {
+        expected: usize,
+    },
+    TipHashPresent,
+    CanonicalTipsMatch,
+    DifficultyEquals {
+        expected: usize,
+    },
+    RunSignatureTamperDemo {
+        from: usize,
+        to: usize,
+        amount_coin: f64,
+    },
+    RunForkReorgDemo {
+        #[serde(default)]
+        primary: usize,
+        #[serde(default = "default_secondary")]
+        secondary: usize,
+        #[serde(default = "default_reorg_depth")]
+        expected_depth: usize,
+    },
+    Acknowledge {
+        #[serde(default)]
+        token: String,
+    },
+}
+
+fn default_reorg_depth() -> usize {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +174,7 @@ pub struct LabSummary {
     pub path: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DemoFlags {
     pub signature_tamper_rejected: bool,
     pub double_spend_second_rejected: bool,

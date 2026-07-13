@@ -138,6 +138,15 @@ This section captures the major technical additions introduced after the modular
 - Added `tx create --fee-satoshi` for fee-controlled mempool experiments.
 - Added `select_validator` for deterministic lab funding (Alice/node 0).
 
+### 9) Guided Student Mode
+
+- Added `sim_cli learn` command group:
+  - `start|status|hint|check|next|resume|reset`
+- Extended `lab.toml` with `guided_steps`.
+- First guided package: UTXO, signatures/integrity, forks/reorgs.
+- Learning sessions persist separately from blockchain state.
+- Failed checks return three-part pedagogical feedback.
+
 ## Updated Roadmap
 
 ### Short-Term

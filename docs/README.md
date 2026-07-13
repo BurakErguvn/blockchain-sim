@@ -13,6 +13,7 @@ Bu dizin, projenin teknik dokümantasyonunu modüler bir yapıda sunar. Amaç, k
 7. [Geliştirme Notları ve Yol Haritası](07-gelisim-notlari-ve-yol-haritasi.md)
 8. [HTTP API Kullanım Kılavuzu](08-http-api-kullanimi.md)
 9. [Akademik Laboratuvarlar](09-akademik-laboratuvarlar.md)
+10. [Yönlendirmeli Öğrenci Modu](10-yonlendirmeli-ogrenci-modu.md)
 
 ## Kullanım Önerisi
 

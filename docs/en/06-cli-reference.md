@@ -182,6 +182,18 @@ cargo run --bin sim_cli -- --profile classroom lab run 01-utxo-and-transfers --j
 cargo run --bin sim_cli -- --profile classroom lab verify 01-utxo-and-transfers --json
 ```
 
+#### Guided student mode
+
+```bash
+cargo run --bin sim_cli -- --profile classroom learn start 01-utxo-and-transfers
+cargo run --bin sim_cli -- --profile classroom learn status
+cargo run --bin sim_cli -- --profile classroom learn hint
+cargo run --bin sim_cli -- --profile classroom learn check
+cargo run --bin sim_cli -- --profile classroom learn check --ack understood
+cargo run --bin sim_cli -- --profile classroom learn resume
+cargo run --bin sim_cli -- --profile classroom learn reset
+```
+
 Optional fee control:
 
 ```bash

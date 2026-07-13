@@ -118,3 +118,6 @@ jobs:
 
       - name: Smoke test academic lab run
         run: cargo run --bin sim_cli -- --profile classroom lab run 01-utxo-and-transfers --json
+
+      - name: Smoke test guided learn start
+        run: cargo run --bin sim_cli -- --profile classroom learn start 01-utxo-and-transfers --json
